@@ -61,6 +61,10 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> RpcDb<T, P> {
 
     /// Fetch the [AccountInfo] for an [Address].
     pub async fn fetch_account_info(&self, address: Address) -> Result<AccountInfo, RpcDbError> {
+        if let Some(value) = self.accounts.borrow().get(&address) {
+            return Ok(value.to_owned());
+        }
+
         tracing::info!("fetching account info for address: {}", address);
 
         // Fetch the proof for the account.
@@ -100,6 +104,12 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> RpcDb<T, P> {
         address: Address,
         index: U256,
     ) -> Result<U256, RpcDbError> {
+        if let Some(storage) = self.storage.borrow().get(&address) {
+            if let Some(value) = storage.get(&index) {
+                return Ok(value.to_owned());
+            }
+        }
+
         tracing::info!("fetching storage value at address: {}, index: {}", address, index);
 
         // Fetch the storage value.
@@ -120,6 +130,10 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> RpcDb<T, P> {
 
     /// Fetch the block hash for a block number.
     pub async fn fetch_block_hash(&self, number: u64) -> Result<B256, RpcDbError> {
+        if let Some(value) = self.block_hashes.borrow().get(&number) {
+            return Ok(value.to_owned());
+        }
+
         tracing::info!("fetching block hash for block number: {}", number);
 
         // Fetch the block.
@@ -139,6 +153,10 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> RpcDb<T, P> {
 
     /// Fetch a trie node based on its Keccak hash using the `debug_dbGet` method.
     pub async fn fetch_trie_node(&self, hash: B256) -> Result<Bytes, RpcDbError> {
+        if let Some(value) = self.trie_nodes.borrow().get(&hash) {
+            return Ok(value.to_owned());
+        }
+
         tracing::info!("fetching trie node {}", hash);
 
         // Fetch the trie node value from a geth node with `state.scheme=hash`.

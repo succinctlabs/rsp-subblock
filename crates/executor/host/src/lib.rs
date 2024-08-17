@@ -22,6 +22,26 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T> + Clone> {
     pub phantom: PhantomData<T>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DbPersistence {
+    current_block: Block,
+    previous_block: Block,
+    block: alloy_rpc_types::BlockId,
+    state_root: B256,
+    accounts: std::collections::HashMap<revm_primitives::Address, revm_primitives::AccountInfo>,
+    storage: std::collections::HashMap<
+        revm_primitives::Address,
+        std::collections::HashMap<revm_primitives::U256, revm_primitives::U256>,
+    >,
+    block_hashes: std::collections::HashMap<u64, B256>,
+    trie_nodes: std::collections::HashMap<B256, revm_primitives::Bytes>,
+    dirty_proofs: Vec<reth_trie::AccountProof>,
+    used_proofs: std::collections::HashMap<
+        revm_primitives::Address,
+        rsp_primitives::account_proof::AccountProofWithBytecode,
+    >,
+}
+
 impl<T: Transport + Clone, P: Provider<T> + Clone> HostExecutor<T, P> {
     /// Create a new [`HostExecutor`] with a specific [Provider] and [Transport].
     pub fn new(provider: P) -> Self {
@@ -44,31 +64,63 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> HostExecutor<T, P> {
         };
 
         let client_input = match variant {
-            ChainVariant::Ethereum => self.execute_variant::<EthereumVariant>(block_number).await,
-            ChainVariant::Optimism => self.execute_variant::<OptimismVariant>(block_number).await,
+            ChainVariant::Ethereum => {
+                self.execute_variant::<EthereumVariant>(chain_id, block_number).await
+            }
+            ChainVariant::Optimism => {
+                self.execute_variant::<OptimismVariant>(chain_id, block_number).await
+            }
         }?;
 
         Ok((client_input, variant))
     }
 
-    async fn execute_variant<V>(&self, block_number: u64) -> eyre::Result<ClientExecutorInput>
+    async fn execute_variant<V>(
+        &self,
+        chain_id: u64,
+        block_number: u64,
+    ) -> eyre::Result<ClientExecutorInput>
     where
         V: Variant,
     {
+        #[allow(deprecated)]
+        let persistence_folder =
+            std::env::home_dir().unwrap().join(format!("data/rsp/{}", chain_id));
+        if !persistence_folder.exists() {
+            std::fs::create_dir_all(&persistence_folder).unwrap();
+        }
+
+        let persistence_path = persistence_folder.join(format!("{}.json", block_number));
+
+        let persistence = if persistence_path.exists() {
+            let mut persistence_file = std::fs::File::open(&persistence_path).unwrap();
+            let persistence: DbPersistence =
+                serde_json::from_reader(&mut persistence_file).unwrap();
+            Some(persistence)
+        } else {
+            None
+        };
+
         // Fetch the current block and the previous block from the provider.
         tracing::info!("fetching the current block and the previous block");
-        let current_block = self
-            .provider
-            .get_block_by_number(block_number.into(), true)
-            .await?
-            .map(Block::try_from)
-            .ok_or(eyre!("couldn't fetch block: {}", block_number))??;
-        let previous_block = self
-            .provider
-            .get_block_by_number((block_number - 1).into(), true)
-            .await?
-            .map(Block::try_from)
-            .ok_or(eyre!("couldn't fetch block: {}", block_number))??;
+        let current_block = if let Some(persistence) = persistence.as_ref() {
+            persistence.current_block.to_owned()
+        } else {
+            self.provider
+                .get_block_by_number(block_number.into(), true)
+                .await?
+                .map(Block::try_from)
+                .ok_or(eyre!("couldn't fetch block: {}", block_number))??
+        };
+        let previous_block = if let Some(persistence) = persistence.as_ref() {
+            persistence.previous_block.to_owned()
+        } else {
+            self.provider
+                .get_block_by_number((block_number - 1).into(), true)
+                .await?
+                .map(Block::try_from)
+                .ok_or(eyre!("couldn't fetch block: {}", block_number))??
+        };
 
         // Setup the spec for the block executor.
         tracing::info!("setting up the spec for the block executor");
@@ -76,11 +128,24 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> HostExecutor<T, P> {
 
         // Setup the database for the block executor.
         tracing::info!("setting up the database for the block executor");
-        let rpc_db = RpcDb::new(
-            self.provider.clone(),
-            (block_number - 1).into(),
-            previous_block.header.state_root,
-        );
+        let rpc_db = if let Some(persistence) = persistence.as_ref() {
+            RpcDb {
+                provider: self.provider.clone(),
+                block: persistence.block,
+                state_root: persistence.state_root,
+                accounts: std::cell::RefCell::new(persistence.accounts.clone()),
+                storage: std::cell::RefCell::new(persistence.storage.clone()),
+                block_hashes: std::cell::RefCell::new(persistence.block_hashes.clone()),
+                trie_nodes: std::cell::RefCell::new(persistence.trie_nodes.clone()),
+                _phantom: PhantomData,
+            }
+        } else {
+            RpcDb::new(
+                self.provider.clone(),
+                (block_number - 1).into(),
+                previous_block.header.state_root,
+            )
+        };
         let cache_db = CacheDB::new(&rpc_db);
 
         // Execute the block and fetch all the necessary data along the way.
@@ -120,26 +185,55 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> HostExecutor<T, P> {
             vec![executor_output.requests.into()],
         );
 
+        let used_proofs = if let Some(persistence) = persistence.as_ref() {
+            persistence.used_proofs.to_owned()
+        } else {
+            rpc_db.fetch_used_accounts_and_proofs().await
+        };
+
         // For every account we touched, fetch the storage proofs for all the slots we touched.
-        let mut dirty_storage_proofs = Vec::new();
-        for (address, account) in executor_outcome.bundle_accounts_iter() {
-            let mut storage_keys = Vec::new();
-            for key in account.storage.keys() {
-                let slot = B256::new(key.to_be_bytes());
-                storage_keys.push(slot);
+        let dirty_storage_proofs = if let Some(persistence) = persistence.as_ref() {
+            persistence.dirty_proofs.clone()
+        } else {
+            let mut buffer = Vec::new();
+            for (address, account) in executor_outcome.bundle_accounts_iter() {
+                let storage_keys = account
+                    .storage
+                    .keys()
+                    .map(|key| B256::new(key.to_be_bytes()))
+                    .collect::<Vec<_>>();
+                let storage_proof = self
+                    .provider
+                    .get_proof(address, storage_keys)
+                    .block_id((block_number - 1).into())
+                    .await?;
+                buffer.push(eip1186_proof_to_account_proof(storage_proof));
             }
-            let storage_proof = self
-                .provider
-                .get_proof(address, storage_keys)
-                .block_id((block_number - 1).into())
-                .await?;
-            dirty_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
-        }
+            buffer
+        };
 
         // Verify the state root.
         tracing::info!("verifying the state root");
         let state_root =
             rsp_mpt::compute_state_root(&executor_outcome, &dirty_storage_proofs, &rpc_db)?;
+
+        serde_json::to_writer(
+            &mut std::fs::File::create(&persistence_path).unwrap(),
+            &DbPersistence {
+                current_block: current_block.clone(),
+                previous_block: previous_block.clone(),
+                block: rpc_db.block,
+                state_root: rpc_db.state_root,
+                accounts: rpc_db.accounts.borrow().to_owned(),
+                storage: rpc_db.storage.borrow().to_owned(),
+                block_hashes: rpc_db.block_hashes.borrow().to_owned(),
+                trie_nodes: rpc_db.trie_nodes.borrow().to_owned(),
+                dirty_proofs: dirty_storage_proofs.clone(),
+                used_proofs: used_proofs.clone(),
+            },
+        )
+        .unwrap();
+
         if state_root != current_block.state_root {
             // TODO: comment this check back in, but leaving it out for now so that we can
             // get rough cycle counts.
@@ -180,7 +274,7 @@ impl<T: Transport + Clone, P: Provider<T> + Clone> HostExecutor<T, P> {
             previous_block,
             current_block,
             dirty_storage_proofs,
-            used_storage_proofs: rpc_db.fetch_used_accounts_and_proofs().await,
+            used_storage_proofs: used_proofs,
             block_hashes: rpc_db.block_hashes.borrow().clone(),
             trie_nodes: rpc_db.trie_nodes.borrow().values().cloned().collect(),
         };
