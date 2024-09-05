@@ -21,6 +21,7 @@ rsp-primitives.workspace = true
 reth-primitives.workspace = true
 reth-trie.workspace = true
 reth-execution-types.workspace = true
+reth-storage-errors.workspace = true
 
 # revm
 revm-primitives.workspace = true

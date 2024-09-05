@@ -1,146 +1,205 @@
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 use alloy_primitives::Bytes;
-use alloy_rlp::{Decodable, Encodable};
-use eyre::Ok;
+use alloy_rlp::Decodable;
 use itertools::Either;
 use reth_execution_types::ExecutionOutcome;
-use reth_primitives::{Address, B256};
+use reth_primitives::{Account, B256};
+use reth_storage_errors::db::DatabaseError;
 use reth_trie::{
-    AccountProof, HashBuilder, HashedPostState, HashedStorage, Nibbles, TrieAccount, TrieNode,
-    CHILD_INDEX_RANGE, EMPTY_ROOT_HASH,
+    forward_cursor::ForwardInMemoryCursor,
+    hashed_cursor::{
+        HashedCursor, HashedCursorFactory, HashedPostStateCursorFactory, HashedStorageCursor,
+    },
+    trie_cursor::{TrieCursor, TrieCursorFactory},
+    AccountProof, BranchNodeCompact, HashBuilder, HashedPostStateSorted, Nibbles, StateRoot,
+    TrieNode, CHILD_INDEX_RANGE, EMPTY_ROOT_HASH,
 };
-use revm_primitives::{keccak256, HashMap};
-use rsp_primitives::storage::ExtDatabaseRef;
+use revm_primitives::{keccak256, HashMap, U256};
 
-#[cfg(feature = "preimage_context")]
-use rsp_primitives::storage::PreimageContext;
-
-/// Additional context for preimage recovery when calculating trie root. `Some` when calculating
-/// storage trie root and `None` when calculating state trie root.
-#[cfg(feature = "preimage_context")]
-type RootContext = Option<Address>;
-
-/// No additional context is needed since the `preimage_context` feature is disabled.
-#[cfg(not(feature = "preimage_context"))]
-type RootContext = ();
-
-/// Computes the state root of a block's Merkle Patricia Trie given an [ExecutionOutcome] and a list
-/// of [EIP1186AccountProofResponse] storage proofs.
-pub fn compute_state_root<DB>(
-    execution_outcome: &ExecutionOutcome,
-    storage_proofs: &[AccountProof],
-    db: &DB,
-) -> eyre::Result<B256>
-where
-    DB: ExtDatabaseRef<Error: std::fmt::Debug>,
-{
-    // Reconstruct prefix sets manually to record pre-images for subsequent lookups.
-    let mut hashed_state = HashedPostState::default();
-    let mut account_reverse_lookup = HashMap::<B256, Address>::default();
-    let mut storage_reverse_lookup = HashMap::<B256, B256>::default();
-    for (address, account) in execution_outcome.bundle_accounts_iter() {
-        let hashed_address = keccak256(address);
-        account_reverse_lookup.insert(hashed_address, address);
-        hashed_state.accounts.insert(hashed_address, account.info.clone().map(Into::into));
-
-        let mut hashed_storage = HashedStorage::new(account.status.was_destroyed());
-        for (key, value) in &account.storage {
-            let slot = B256::new(key.to_be_bytes());
-            let hashed_slot = keccak256(slot);
-            storage_reverse_lookup.insert(hashed_slot, slot);
-            hashed_storage.storage.insert(hashed_slot, value.present_value);
-        }
-
-        hashed_state.storages.insert(hashed_address, hashed_storage);
-    }
-
-    // Compute the storage roots for each account.
-    let mut storage_roots = HashMap::<B256, B256>::default();
-    let prefix_sets = hashed_state.construct_prefix_sets();
-    let account_prefix_set = prefix_sets.account_prefix_set.freeze();
-    for account_nibbles in account_prefix_set.iter() {
-        let hashed_address = B256::from_slice(&account_nibbles.pack());
-        let address = *account_reverse_lookup.get(&hashed_address).unwrap();
-        let storage_prefix_sets =
-            prefix_sets.storage_prefix_sets.get(&hashed_address).cloned().unwrap_or_default();
-
-        let proof = storage_proofs.iter().find(|x| x.address == address).unwrap();
-        let root = if proof.storage_proofs.is_empty() {
-            proof.storage_root
-        } else {
-            #[cfg(feature = "preimage_context")]
-            let context = Some(address);
-            #[cfg(not(feature = "preimage_context"))]
-            let context = ();
-
-            compute_root_from_proofs(
-                storage_prefix_sets.freeze().iter().map(|storage_nibbles| {
-                    let hashed_slot = B256::from_slice(&storage_nibbles.pack());
-                    let slot = storage_reverse_lookup.get(&hashed_slot).unwrap();
-                    let storage_proof =
-                        proof.storage_proofs.iter().find(|x| x.key.0 == slot).unwrap();
-                    let encoded = Some(
-                        hashed_state
-                            .storages
-                            .get(&hashed_address)
-                            .and_then(|s| s.storage.get(&hashed_slot).cloned())
-                            .unwrap_or_default(),
-                    )
-                    .filter(|v| !v.is_zero())
-                    .map(|v| alloy_rlp::encode_fixed_size(&v).to_vec());
-                    (storage_nibbles.clone(), encoded, storage_proof.proof.clone())
-                }),
-                db,
-                context,
-            )?
-        };
-        storage_roots.insert(hashed_address, root);
-    }
-
-    #[cfg(feature = "preimage_context")]
-    let context = None;
-    #[cfg(not(feature = "preimage_context"))]
-    let context = ();
-
-    // Compute the state root of the entire trie.
-    let mut rlp_buf = Vec::with_capacity(128);
-    compute_root_from_proofs(
-        account_prefix_set.iter().map(|account_nibbles| {
-            let hashed_address = B256::from_slice(&account_nibbles.pack());
-            let address = *account_reverse_lookup.get(&hashed_address).unwrap();
-            let proof = storage_proofs.iter().find(|x| x.address == address).unwrap();
-
-            let storage_root = *storage_roots.get(&hashed_address).unwrap();
-
-            let account = hashed_state.accounts.get(&hashed_address).unwrap().unwrap_or_default();
-            let encoded = if account.is_empty() && storage_root == EMPTY_ROOT_HASH {
-                None
-            } else {
-                rlp_buf.clear();
-                TrieAccount::from((account, storage_root)).encode(&mut rlp_buf);
-                Some(rlp_buf.clone())
-            };
-            (account_nibbles.clone(), encoded, proof.proof.clone())
-        }),
-        db,
-        context,
-    )
+#[derive(Clone)]
+struct InMemoryTrieCursorFactory<'a> {
+    account_entries: &'a Vec<(Nibbles, BranchNodeCompact)>,
+    storage_entries: &'a HashMap<B256, Vec<(Nibbles, BranchNodeCompact)>>,
 }
 
-/// Given a list of Merkle-Patricia proofs, compute the root of the trie.
-fn compute_root_from_proofs<DB>(
-    items: impl IntoIterator<Item = (Nibbles, Option<Vec<u8>>, Vec<Bytes>)>,
-    db: &DB,
-    #[allow(unused)] root_context: RootContext,
-) -> eyre::Result<B256>
-where
-    DB: ExtDatabaseRef<Error: std::fmt::Debug>,
-{
+struct InMemoryAccountTrieCursor<'a> {
+    cursor: ForwardInMemoryCursor<'a, Nibbles, BranchNodeCompact>,
+}
+
+struct InMemoryStorageTrieCursor<'a> {
+    cursor: ForwardInMemoryCursor<'a, Nibbles, BranchNodeCompact>,
+}
+
+#[derive(Clone)]
+struct InMemoryHashedCursorFactory<'a> {
+    account_entries: &'a Vec<(B256, Account)>,
+    storage_entries: &'a HashMap<B256, Vec<(B256, U256)>>,
+}
+
+struct InMemoryHashedAccountCursor<'a> {
+    cursor: ForwardInMemoryCursor<'a, B256, Account>,
+}
+
+struct InMemoryHashedStorageCursor<'a> {
+    cursor: ForwardInMemoryCursor<'a, B256, U256>,
+}
+
+impl<'a> TrieCursorFactory for InMemoryTrieCursorFactory<'a> {
+    type AccountTrieCursor = InMemoryAccountTrieCursor<'a>;
+    type StorageTrieCursor = InMemoryStorageTrieCursor<'a>;
+
+    fn account_trie_cursor(&self) -> Result<Self::AccountTrieCursor, DatabaseError> {
+        Ok(InMemoryAccountTrieCursor { cursor: ForwardInMemoryCursor::new(self.account_entries) })
+    }
+
+    fn storage_trie_cursor(
+        &self,
+        hashed_address: B256,
+    ) -> Result<Self::StorageTrieCursor, DatabaseError> {
+        Ok(InMemoryStorageTrieCursor {
+            cursor: ForwardInMemoryCursor::new(self.storage_entries.get(&hashed_address).unwrap()),
+        })
+    }
+}
+
+impl<'a> TrieCursor for InMemoryAccountTrieCursor<'a> {
+    #[doc = " Move the cursor to the key and return if it is an exact match."]
+    fn seek_exact(
+        &mut self,
+        key: Nibbles,
+    ) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        let in_memory = self.cursor.seek(&key);
+        if in_memory.as_ref().map_or(false, |entry| entry.0 == key) {
+            return Ok(in_memory);
+        }
+
+        unreachable!();
+    }
+
+    #[doc = " Move the cursor to the key and return a value matching of greater than the key."]
+    fn seek(
+        &mut self,
+        key: Nibbles,
+    ) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        Ok(self.cursor.seek(&key))
+    }
+
+    #[doc = " Move the cursor to the next key."]
+    fn next(&mut self) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        unreachable!();
+    }
+
+    #[doc = " Get the current entry."]
+    fn current(&mut self) -> Result<Option<Nibbles>, DatabaseError> {
+        Ok(self.cursor.current_key().cloned())
+    }
+}
+
+impl<'a> TrieCursor for InMemoryStorageTrieCursor<'a> {
+    #[doc = " Move the cursor to the key and return if it is an exact match."]
+    fn seek_exact(
+        &mut self,
+        key: Nibbles,
+    ) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        let in_memory = self.cursor.seek(&key);
+        if in_memory.as_ref().map_or(false, |entry| entry.0 == key) {
+            return Ok(in_memory);
+        }
+
+        // Is this correct?
+        Ok(None)
+    }
+
+    #[doc = " Move the cursor to the key and return a value matching of greater than the key."]
+    fn seek(
+        &mut self,
+        key: Nibbles,
+    ) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        Ok(self.cursor.seek(&key))
+    }
+
+    #[doc = " Move the cursor to the next key."]
+    fn next(&mut self) -> Result<Option<(Nibbles, BranchNodeCompact)>, DatabaseError> {
+        unreachable!();
+    }
+
+    #[doc = " Get the current entry."]
+    fn current(&mut self) -> Result<Option<Nibbles>, DatabaseError> {
+        Ok(self.cursor.current_key().cloned())
+    }
+}
+
+impl<'a> HashedCursorFactory for InMemoryHashedCursorFactory<'a> {
+    type AccountCursor = InMemoryHashedAccountCursor<'a>;
+    type StorageCursor = InMemoryHashedStorageCursor<'a>;
+
+    fn hashed_account_cursor(&self) -> Result<Self::AccountCursor, DatabaseError> {
+        Ok(InMemoryHashedAccountCursor { cursor: ForwardInMemoryCursor::new(self.account_entries) })
+    }
+
+    fn hashed_storage_cursor(
+        &self,
+        hashed_address: B256,
+    ) -> Result<Self::StorageCursor, DatabaseError> {
+        Ok(InMemoryHashedStorageCursor {
+            cursor: ForwardInMemoryCursor::new(self.storage_entries.get(&hashed_address).unwrap()),
+        })
+    }
+}
+
+impl<'a> HashedCursor for InMemoryHashedAccountCursor<'a> {
+    type Value = Account;
+
+    fn seek(&mut self, key: B256) -> Result<Option<(B256, Self::Value)>, DatabaseError> {
+        Ok(self.cursor.seek(&key))
+    }
+
+    fn next(&mut self) -> Result<Option<(B256, Self::Value)>, DatabaseError> {
+        Ok(self.cursor.next())
+    }
+}
+
+impl<'a> HashedCursor for InMemoryHashedStorageCursor<'a> {
+    type Value = U256;
+
+    fn seek(&mut self, key: B256) -> Result<Option<(B256, Self::Value)>, DatabaseError> {
+        Ok(self.cursor.seek(&key))
+    }
+
+    fn next(&mut self) -> Result<Option<(B256, Self::Value)>, DatabaseError> {
+        Ok(self.cursor.next())
+    }
+}
+
+impl<'a> HashedStorageCursor for InMemoryHashedStorageCursor<'a> {
+    fn is_storage_empty(&mut self) -> Result<bool, DatabaseError> {
+        Ok(self.cursor.is_empty())
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn proofs_to_stuff<T: Decodable + Default>(
+    proofs: Vec<(B256, Vec<Bytes>)>,
+) -> eyre::Result<(Vec<(Nibbles, BranchNodeCompact)>, Vec<(B256, T)>)> {
+    let mut my_entries: HashMap<Nibbles, BranchNodeCompact> = HashMap::new();
+
     let mut trie_nodes = BTreeMap::default();
     let mut ignored_keys = HashSet::<Nibbles>::default();
 
-    for (key, value, proof) in items {
+    let mut leaves = BTreeMap::default();
+
+    // Hack to make sure the node iter doesn't prematurely ends. THIS CAUSES WRONG TRIE ROOT.
+    leaves.insert(
+        B256::from_slice(&reth_primitives::hex!(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        )),
+        T::default(),
+    );
+
+    for (hashed_key, proof) in proofs.iter() {
+        let key = Nibbles::unpack(hashed_key);
+
         let mut path = Nibbles::default();
         let mut proof_iter = proof.iter().peekable();
 
@@ -149,12 +208,17 @@ where
             match TrieNode::decode(&mut &encoded[..])? {
                 TrieNode::Branch(branch) => {
                     next_path.push(key[path.len()]);
+
+                    let mut children = vec![];
+
                     let mut stack_ptr = branch.as_ref().first_child_index();
                     for index in CHILD_INDEX_RANGE {
                         let mut branch_child_path = path.clone();
                         branch_child_path.push(index);
 
                         if branch.state_mask.is_bit_set(index) {
+                            children.push(B256::from_slice(&branch.stack[stack_ptr][1..]));
+
                             if !key.starts_with(&branch_child_path) {
                                 let child = &branch.stack[stack_ptr];
                                 if child.len() == B256::len_bytes() + 1 {
@@ -164,34 +228,25 @@ where
                                         Either::Left(B256::from_slice(&child[1..])),
                                     );
                                 } else {
-                                    // The child node is encoded in-place. This can happen when the
-                                    // encoded child itself is shorter than 32 bytes:
-                                    //
-                                    // https://github.com/ethereum/ethereum-org-website/blob/6eed7bcfd708ca605447dd9b8fde8f74cfcaf8d9/public/content/developers/docs/data-structures-and-encoding/patricia-merkle-trie/index.md?plain=1#L186
-                                    if let TrieNode::Leaf(child_leaf) =
-                                        TrieNode::decode(&mut &child[..])?
-                                    {
-                                        branch_child_path.extend_from_slice(&child_leaf.key);
-                                        trie_nodes.insert(
-                                            branch_child_path,
-                                            Either::Right(child_leaf.value),
-                                        );
-                                    } else {
-                                        // Same as the case for an extension node's child below,
-                                        // this is possible in theory but extremely unlikely (even
-                                        // more unlikely than the extension node's case as the node
-                                        // header takes up extra space), making it impractical to
-                                        // find proper test cases. It's better to be left
-                                        // unimplemented.
-                                        unimplemented!(
-                                            "branch child is a non-leaf node encoded in place"
-                                        );
-                                    }
+                                    // The child node is encoded in-place. Temporarily ignored for
+                                    // cycle tracking.
+                                    todo!()
                                 }
                             }
                             stack_ptr += 1;
                         }
                     }
+
+                    my_entries.insert(
+                        path.clone(),
+                        BranchNodeCompact::new(
+                            branch.state_mask,
+                            0,
+                            branch.state_mask,
+                            children,
+                            None,
+                        ),
+                    );
                 }
                 TrieNode::Extension(extension) => {
                     next_path.extend_from_slice(&extension.key);
@@ -232,44 +287,14 @@ where
                 }
                 TrieNode::Leaf(leaf) => {
                     next_path.extend_from_slice(&leaf.key);
-                    if next_path == key {
-                        if value.is_none() {
-                            // The proof points to the node of interest, meaning the node previously
-                            // exists. The node does not exist now, so the parent pointing to this
-                            // child needs to be eliminated too.
+                    trie_nodes.insert(next_path.clone(), Either::Right(leaf.value.clone()));
 
-                            // Recover the path before the extensions. We either have to clone
-                            // before the extension or recover here. Recovering here is probably
-                            // more efficient as long as deletion is not the majority of the
-                            // updates.
-                            ignored_keys
-                                .insert(next_path.slice(0..(next_path.len() - leaf.key.len())));
-                        }
-                    } else {
-                        // The proof points to a neighbour. This happens when proving the previous
-                        // absence of the node of interest.
-                        //
-                        // We insert this neighbour node only if it's vacant to avoid overwriting
-                        // it when the neighbour node itself is being updated.
-                        if let Entry::Vacant(entry) = trie_nodes.entry(next_path.clone()) {
-                            entry.insert(Either::Right(leaf.value.clone()));
-                        }
-                    }
+                    let storage_value = T::decode(&mut leaf.value.as_slice()).unwrap();
+
+                    leaves.insert(B256::from_slice(&next_path.pack()), storage_value);
                 }
             };
             path = next_path;
-        }
-
-        if let Some(value) = value {
-            // This overwrites any value that might have been inserted during proof walking, which
-            // can happen when an immediate upper neighbour is inserted where the already inserted
-            // value would be outdated.
-            trie_nodes.insert(key, Either::Right(value));
-        } else {
-            // This is a node deletion. If this key is not ignored then an insertion of an immediate
-            // upper neighbour would result in this node being added (and thus treated as not
-            // deleted) as part of the proof walking process.
-            ignored_keys.insert(key);
         }
     }
 
@@ -282,530 +307,164 @@ where
     }
 
     // Build the hash tree.
-    let mut hash_builder = HashBuilder::default();
-    let mut trie_nodes =
-        trie_nodes.into_iter().filter(|(path, _)| !ignored_keys.contains(path)).peekable();
-    while let Some((mut path, value)) = trie_nodes.next() {
+    let mut hash_builder = HashBuilder::default().with_updates(true);
+    for (path, value) in trie_nodes.into_iter().filter(|(path, _)| !ignored_keys.contains(path)) {
         match value {
             Either::Left(branch_hash) => {
-                let parent_branch_path = path.slice(..path.len() - 1);
-                let has_neighbour = (!hash_builder.key.is_empty() &&
-                    hash_builder.key.starts_with(&parent_branch_path)) ||
-                    trie_nodes
-                        .peek()
-                        .map_or(false, |next| next.0.starts_with(&parent_branch_path));
-
-                if has_neighbour {
-                    hash_builder.add_branch(path, branch_hash, false);
-                } else {
-                    // Parent was a branch node but now all but one children are gone. We
-                    // technically have to modify this branch node, but the `alloy-trie` hash
-                    // builder handles this automatically when supplying child nodes.
-
-                    #[cfg(feature = "preimage_context")]
-                    let preimage = db
-                        .trie_node_ref_with_context(
-                            branch_hash,
-                            PreimageContext { address: &root_context, branch_path: &path },
-                        )
-                        .unwrap();
-                    #[cfg(not(feature = "preimage_context"))]
-                    let preimage = db.trie_node_ref(branch_hash).unwrap();
-
-                    match TrieNode::decode(&mut &preimage[..]).unwrap() {
-                        TrieNode::Branch(_) => {
-                            // This node is a branch node that's referenced by hash. There's no need
-                            // to handle the content as the node itself is unchanged.
-                            hash_builder.add_branch(path, branch_hash, false);
-                        }
-                        TrieNode::Extension(extension) => {
-                            // This node is an extension node. Simply prepend the leaf node's key
-                            // with the original branch index. `alloy-trie` automatically handles
-                            // this so we only have to reconstruct the full key path.
-                            path.extend_from_slice(&extension.key);
-
-                            // In theory, it's possible that this extension node's child branch is
-                            // encoded in-place, though it should be extremely rare, as for that to
-                            // happen, at least 2 storage nodes must share a very long prefix, which
-                            // is very unlikely to happen given that they're hashes.
-                            //
-                            // Moreover, `alloy-trie` currently does not offer an API for this rare
-                            // case anyway. See relevant (but not directly related) PR:
-                            //
-                            // https://github.com/alloy-rs/trie/pull/27
-                            if extension.child.len() == B256::len_bytes() + 1 {
-                                hash_builder.add_branch(
-                                    path,
-                                    B256::from_slice(&extension.child[1..]),
-                                    false,
-                                );
-                            } else {
-                                todo!("handle in-place extension child")
-                            }
-                        }
-                        TrieNode::Leaf(leaf) => {
-                            // Same as the extension node's case: we only have to reconstruct the
-                            // full path.
-                            path.extend_from_slice(&leaf.key);
-                            hash_builder.add_leaf(path, &leaf.value);
-                        }
-                    }
-                }
+                hash_builder.add_branch(path, branch_hash, true);
             }
             Either::Right(leaf_value) => {
                 hash_builder.add_leaf(path, &leaf_value);
             }
         }
     }
-    let root = hash_builder.root();
-    Ok(root)
+
+    // Forces the last item to be updated by calculating root.
+    hash_builder.root();
+
+    let (_, updates) = hash_builder.split();
+
+    for (key, value) in updates.into_iter() {
+        my_entries.insert(key, value);
+    }
+
+    let mut entries: Vec<_> = my_entries.into_iter().collect();
+    entries.sort_by_key(|item| item.0.clone());
+
+    let leaves: Vec<_> = leaves.into_iter().collect();
+
+    Ok((entries, leaves))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub fn compute_state_root(
+    execution_outcome: &ExecutionOutcome,
+    storage_proofs: &[AccountProof],
+) -> eyre::Result<B256> {
+    let mut storage_trie_entries = HashMap::new();
+    let mut hashed_storage_entries = HashMap::new();
 
-    use alloy_trie::proof::ProofRetainer;
-    use hex_literal::hex;
-
-    /// Leaf node A:
-    ///
-    /// e1 => list len = 33
-    ///    3a => odd leaf with path `a`
-    ///    9f => string len = 31
-    ///       9e => string len = 30
-    ///          888888888888888888888888888888888888888888888888888888888888 => value
-    ///
-    /// Flattened:
-    /// e13a9f9e888888888888888888888888888888888888888888888888888888888888
-    ///
-    /// Trie node hash:
-    /// c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421
-    const LEAF_A: Bytes = Bytes::from_static(&hex!(
-        "e13a9f9e888888888888888888888888888888888888888888888888888888888888"
-    ));
-
-    struct TestTrieDb {
-        preimages: Vec<Bytes>,
-    }
-
-    impl TestTrieDb {
-        fn new() -> Self {
-            Self { preimages: vec![LEAF_A] }
-        }
-    }
-
-    impl ExtDatabaseRef for TestTrieDb {
-        type Error = std::convert::Infallible;
-
-        fn trie_node_ref(&self, hash: B256) -> std::result::Result<Bytes, Self::Error> {
-            for preimage in self.preimages.iter() {
-                if keccak256(preimage) == hash {
-                    return std::result::Result::Ok(preimage.to_owned());
-                }
-            }
-
-            panic!("missing preimage for test")
-        }
-
-        fn trie_node_ref_with_context(
-            &self,
-            hash: B256,
-            _context: PreimageContext<'_>,
-        ) -> Result<Bytes, Self::Error> {
-            self.trie_node_ref(hash)
-        }
-    }
-
-    #[test]
-    fn test_delete_single_leaf() {
-        // Trie before with nodes
-        //
-        // - `1a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `3a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // Root:
-        //
-        // f8 => list len of len = 1
-        //    71 => list len = 113
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //
-        // Flattened:
-        // f87180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c7
-        // 2d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5a
-        // cb10a951f0e82cf2e461b98c4e5afb0348ccab5bb42180808080808080808080808080
-        //
-        // Root hash
-        // 929a169d86a02de55457b8928bd3cdae55b24fe2771f7a3edaa992c0500c4427
-
-        // Deleting node `2a`:
-        //
-        // - `1a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `3a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // New root:
-        //
-        // f8 => list len of len = 1
-        //    51 => list len = 81
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //
-        // Flattened:
-        // f85180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb42180a0c2c2
-        // c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb42180808080808080808080
-        // 808080
-        //
-        // Root hash
-        // ff07cbbe26d25f65cf2ff08dc127e71b8cb238bee5da9df515422ff7eaa8d67e
-
-        let root = compute_root_from_proofs(
-            [(
-                Nibbles::from_nibbles([0x2, 0xa]),
-                None,
-                vec![
-                    Bytes::from_static(&hex!(
-                        "\
-f87180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c7\
-2d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5a\
-cb10a951f0e82cf2e461b98c4e5afb0348ccab5bb42180808080808080808080808080"
-                    )),
-                    LEAF_A,
-                ],
-            )],
-            &TestTrieDb::new(),
-            None,
+    let (account_trie_entries, hashed_account_entries) = {
+        let (entries, leaves) = proofs_to_stuff::<alloy_rpc_types::Account>(
+            storage_proofs
+                .iter()
+                .map(|proof| (keccak256(proof.address), proof.proof.clone()))
+                .collect(),
         )
         .unwrap();
 
-        assert_eq!(root, hex!("ff07cbbe26d25f65cf2ff08dc127e71b8cb238bee5da9df515422ff7eaa8d67e"));
-    }
+        // We have to do this because when Account does not come with inline storage hash, so
+        // the hasher always attempts to walk the storage trie.
+        //
+        // It's okay to always insert here, as it gets overwritten by the code below if we actually
+        // have access to the storage.
+        for leaf in leaves.iter() {
+            storage_trie_entries.insert(
+                leaf.0,
+                vec![(
+                    Nibbles::default(),
+                    BranchNodeCompact::new(
+                        0b1111111111111111_u16,
+                        0,
+                        0,
+                        vec![],
+                        Some(leaf.1.storage_root),
+                    ),
+                )],
+            );
 
-    #[test]
-    fn test_delete_multiple_leaves() {
-        // Trie before with nodes
-        //
-        // - `1a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `3a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `4a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // Root:
-        //
-        // f8 => list len of len = 1
-        //    91 => list len = 145
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //
-        // Flattened:
-        // f89180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c7
-        // 2d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5a
-        // cb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5acb10a951f0e82c
-        // f2e461b98c4e5afb0348ccab5bb421808080808080808080808080
-        //
-        // Root hash
-        // d34c1443edf7e282fcfd056db2ec24bcaf797dc3a039e0628473b069a2e8b1be
-
-        // Deleting node `2a` and `3a`:
-        //
-        // - `1a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // New root:
-        //
-        // f8 => list len of len = 1
-        //    51 => list len = 81
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       80
-        //       a0 => branch hash
-        //          c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421 => leaf node A
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //       80
-        //
-        // Flattened:
-        // f85180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb4218080a0c2
-        // c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421808080808080808080
-        // 808080
-        //
-        // Root hash
-        // 4a2aa1a2188e9bf279d51729b0c5789e4f0605c85752f9ca47760fcbe0f80244
-
-        let root = compute_root_from_proofs(
-            [
-                (
-                    Nibbles::from_nibbles([0x2, 0xa]),
-                    None,
-                    vec![
-                        Bytes::from_static(&hex!(
-                            "\
-f89180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c7\
-2d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5a\
-cb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5acb10a951f0e82c\
-f2e461b98c4e5afb0348ccab5bb421808080808080808080808080"
+            hashed_storage_entries.insert(
+                leaf.0,
+                if leaf.1.storage_root == EMPTY_ROOT_HASH {
+                    vec![]
+                } else {
+                    // This is to prevent the empty cursor short circuit
+                    vec![(
+                        B256::from(reth_primitives::hex!(
+                            "1111111111111111111111111111111111111111111111111111111111111111"
                         )),
-                        LEAF_A,
-                    ],
-                ),
-                (
-                    Nibbles::from_nibbles([0x3, 0xa]),
-                    None,
-                    vec![
-                        Bytes::from_static(&hex!(
-                            "\
-f89180a0c2c2c72d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c7\
-2d0c79d673ad5acb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5a\
-cb10a951f0e82cf2e461b98c4e5afb0348ccab5bb421a0c2c2c72d0c79d673ad5acb10a951f0e82c\
-f2e461b98c4e5afb0348ccab5bb421808080808080808080808080"
-                        )),
-                        LEAF_A,
-                    ],
-                ),
-            ],
-            &TestTrieDb::new(),
-            None,
+                        U256::from(2),
+                    )]
+                },
+            );
+        }
+
+        (
+            entries,
+            leaves
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        key,
+                        Account {
+                            nonce: value.nonce,
+                            balance: value.balance,
+                            bytecode_hash: if value.code_hash == keccak256([]) {
+                                None
+                            } else {
+                                Some(value.code_hash)
+                            },
+                        },
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    for proof in storage_proofs.iter() {
+        let hashed_address = keccak256(proof.address);
+        let (entries, leaves) = proofs_to_stuff::<U256>(
+            proof
+                .storage_proofs
+                .iter()
+                .map(|proof| (keccak256(proof.key), proof.proof.clone()))
+                .collect(),
         )
         .unwrap();
 
-        assert_eq!(root, hex!("4a2aa1a2188e9bf279d51729b0c5789e4f0605c85752f9ca47760fcbe0f80244"));
+        storage_trie_entries.insert(hashed_address, entries);
+        hashed_storage_entries.insert(hashed_address, leaves);
     }
 
-    #[test]
-    fn test_insert_with_updated_neighbour() {
-        let value_1 = hex!("9e888888888888888888888888888888888888888888888888888888888888");
-        let value_2 = hex!("9e999999999999999999999999999999999999999999999999999999999999");
+    println!("cycle-tracker-start: reth-root");
 
-        // Trie before as a branch with 2 nodes:
-        //
-        // - `11a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
+    println!("cycle-tracker-start: prep");
 
-        let mut hash_builder =
-            HashBuilder::default().with_proof_retainer(ProofRetainer::new(vec![
-                Nibbles::from_nibbles([0x1, 0x1, 0xa]),
-                Nibbles::from_nibbles([0x1, 0x1, 0xb]),
-            ]));
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0x1, 0xa]), &value_1);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value_1);
+    let in_memory_trie_cursor_factory = InMemoryTrieCursorFactory {
+        account_entries: &account_trie_entries,
+        storage_entries: &storage_trie_entries,
+    };
+    let in_memory_hashed_cursor_factory = InMemoryHashedCursorFactory {
+        account_entries: &hashed_account_entries,
+        storage_entries: &hashed_storage_entries,
+    };
 
-        hash_builder.root();
-        let proofs = hash_builder.take_proofs();
+    println!("cycle-tracker-end: prep");
 
-        // Trie after updating `11a` and inserting `11b`:
-        //
-        // - `11a`: 999999999999999999999999999999999999999999999999999999999999
-        // - `11b`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // Root branch child slot 1 turns from a leaf to another branch.
+    println!("cycle-tracker-start: hash");
+    let hashed_post_state = execution_outcome.hash_state_slow();
+    println!("cycle-tracker-end: hash");
 
-        let mut hash_builder = HashBuilder::default();
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0x1, 0xa]), &value_2);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0x1, 0xb]), &value_1);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value_1);
+    println!("cycle-tracker-start: prefix");
+    let prefix_sets = hashed_post_state.construct_prefix_sets().freeze();
+    println!("cycle-tracker-end: prefix");
 
-        let root = compute_root_from_proofs(
-            [
-                (
-                    Nibbles::from_nibbles([0x1, 0x1, 0xa]),
-                    Some(
-                        hex!("9e999999999999999999999999999999999999999999999999999999999999")
-                            .to_vec(),
-                    ),
-                    vec![
-                        proofs.get(&Nibbles::default()).unwrap().to_owned(),
-                        proofs.get(&Nibbles::from_nibbles([0x1])).unwrap().to_owned(),
-                    ],
-                ),
-                (
-                    Nibbles::from_nibbles([0x1, 0x1, 0xb]),
-                    Some(
-                        hex!("9e888888888888888888888888888888888888888888888888888888888888")
-                            .to_vec(),
-                    ),
-                    vec![
-                        proofs.get(&Nibbles::default()).unwrap().to_owned(),
-                        proofs.get(&Nibbles::from_nibbles([0x1])).unwrap().to_owned(),
-                    ],
-                ),
-            ],
-            &TestTrieDb::new(),
-            None,
-        )
+    println!("cycle-tracker-start: sort");
+    let sorted_stated: HashedPostStateSorted = hashed_post_state.into_sorted();
+    println!("cycle-tracker-end: sort");
+
+    println!("cycle-tracker-start: factory");
+    let hashed_post_state_cursor_factory =
+        HashedPostStateCursorFactory::new(in_memory_hashed_cursor_factory, &sorted_stated);
+    println!("cycle-tracker-end: factory");
+
+    println!("cycle-tracker-start: root");
+    let root = StateRoot::new(in_memory_trie_cursor_factory, hashed_post_state_cursor_factory)
+        .with_prefix_sets(prefix_sets)
+        .root()
         .unwrap();
+    println!("cycle-tracker-end: root");
 
-        assert_eq!(root, hash_builder.root());
-    }
+    println!("cycle-tracker-end: reth-root");
 
-    #[test]
-    fn test_insert_with_deleted_neighbour() {
-        let value = hex!("9e888888888888888888888888888888888888888888888888888888888888");
-
-        // Trie before as a branch with 2 nodes:
-        //
-        // - `11a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-
-        let mut hash_builder =
-            HashBuilder::default().with_proof_retainer(ProofRetainer::new(vec![
-                Nibbles::from_nibbles([0x1, 0x1, 0xa]),
-                Nibbles::from_nibbles([0x1, 0x1, 0xb]),
-            ]));
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0x1, 0xa]), &value);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value);
-
-        hash_builder.root();
-        let proofs = hash_builder.take_proofs();
-
-        // Trie after deleting `11a` and inserting `11b`:
-        //
-        // - `11b`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // Root branch child slot 1 turns from a leaf to another branch.
-
-        let mut hash_builder = HashBuilder::default();
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0x1, 0xb]), &value);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value);
-
-        let root = compute_root_from_proofs(
-            [
-                (
-                    Nibbles::from_nibbles([0x1, 0x1, 0xa]),
-                    None,
-                    vec![
-                        proofs.get(&Nibbles::default()).unwrap().to_owned(),
-                        proofs.get(&Nibbles::from_nibbles([0x1])).unwrap().to_owned(),
-                    ],
-                ),
-                (
-                    Nibbles::from_nibbles([0x1, 0x1, 0xb]),
-                    Some(
-                        hex!("9e888888888888888888888888888888888888888888888888888888888888")
-                            .to_vec(),
-                    ),
-                    vec![
-                        proofs.get(&Nibbles::default()).unwrap().to_owned(),
-                        proofs.get(&Nibbles::from_nibbles([0x1])).unwrap().to_owned(),
-                    ],
-                ),
-            ],
-            &TestTrieDb::new(),
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(root, hash_builder.root());
-    }
-
-    #[test]
-    fn test_only_root_node_left() {
-        let value = hex!("9e888888888888888888888888888888888888888888888888888888888888");
-
-        // Trie before as a branch with 2 nodes:
-        //
-        // - `1a`: 888888888888888888888888888888888888888888888888888888888888
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-
-        let mut hash_builder = HashBuilder::default()
-            .with_proof_retainer(ProofRetainer::new(vec![Nibbles::from_nibbles([0x1, 0xa])]));
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x1, 0xa]), &value);
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value);
-
-        hash_builder.root();
-        let proofs = hash_builder.take_proofs();
-
-        dbg!(&proofs);
-
-        // Trie after deleting `1a`:
-        //
-        // - `2a`: 888888888888888888888888888888888888888888888888888888888888
-        //
-        // Root branch child slot 1 turns from a leaf to another branch.
-
-        let mut hash_builder = HashBuilder::default();
-        hash_builder.add_leaf(Nibbles::from_nibbles([0x2, 0xa]), &value);
-
-        let root = compute_root_from_proofs(
-            [(
-                Nibbles::from_nibbles([0x1, 0xa]),
-                None,
-                vec![
-                    proofs.get(&Nibbles::default()).unwrap().to_owned(),
-                    proofs.get(&Nibbles::from_nibbles([0x1])).unwrap().to_owned(),
-                ],
-            )],
-            &TestTrieDb::new(),
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(root, hash_builder.root());
-    }
+    Ok(root)
 }
