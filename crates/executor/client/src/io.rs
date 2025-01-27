@@ -128,7 +128,7 @@ impl<'a> DatabaseRef for TrieDB<'a> {
 
         Ok(storage_trie
             .get_rlp::<U256>(keccak256(index.to_be_bytes::<32>()).as_slice())
-            .expect("Can get from MPT")
+            .expect("Can't get from MPT")
             .unwrap_or_default())
     }
 

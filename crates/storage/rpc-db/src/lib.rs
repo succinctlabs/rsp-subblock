@@ -58,7 +58,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
     /// Fetch the [AccountInfo] for an [Address].
     pub async fn fetch_account_info(&self, address: Address) -> Result<AccountInfo, RpcDbError> {
-        tracing::info!("fetching account info for address: {}", address);
+        tracing::debug!("fetching account info for address: {}", address);
+
+        // if self.accounts.borrow().contains_key(&address) {
+        //     return Ok(self.accounts.borrow().get(&address).unwrap().clone());
+        // }
 
         // Fetch the proof for the account.
         let proof = self
@@ -97,7 +101,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         address: Address,
         index: U256,
     ) -> Result<U256, RpcDbError> {
-        tracing::info!("fetching storage value at address: {}, index: {}", address, index);
+        tracing::debug!("fetching storage value at address: {}, index: {}", address, index);
 
         // Fetch the storage value.
         let value = self
@@ -153,6 +157,12 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
                 (address, storage_keys_for_address.into_iter().collect())
             })
             .collect()
+    }
+
+    /// Advances the subblock.
+    pub fn advance_subblock(&self) {
+        self.accounts.borrow_mut().clear();
+        self.storage.borrow_mut().clear();
     }
 
     /// Gets all account bytecodes.
