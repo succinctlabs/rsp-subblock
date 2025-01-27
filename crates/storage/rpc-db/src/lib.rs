@@ -155,6 +155,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             .collect()
     }
 
+    /// Advances the subblock.
+    pub fn advance_subblock(&self) -> HashMap<Address, Vec<U256>> {
+        todo!();
+    }
+
     /// Gets all account bytecodes.
     pub fn get_bytecodes(&self) -> Vec<Bytecode> {
         let accounts = self.accounts.borrow();

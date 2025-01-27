@@ -33,6 +33,10 @@ hex = "0.4.3"
 [build-dependencies]
 sp1-helper = "4.0.0"
 
+[[bin]]
+name = "subblock"
+path = "src/subblock.rs"
+
 [features]
 default = []
 cuda = ["sp1-sdk/cuda"]

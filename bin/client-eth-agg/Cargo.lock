@@ -2781,7 +2781,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rsp-client-eth"
+name = "rsp-client-eth-agg"
 version = "0.0.0"
 dependencies = [
  "bincode",
