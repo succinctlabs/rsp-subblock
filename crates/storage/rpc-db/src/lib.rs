@@ -11,6 +11,7 @@ use reth_primitives::{
     revm_primitives::{AccountInfo, Bytecode},
     Address, B256, U256,
 };
+use reth_revm::db::BundleState;
 use reth_revm::DatabaseRef;
 use reth_storage_errors::{db::DatabaseError, provider::ProviderError};
 use revm_primitives::HashMap;
@@ -22,9 +23,13 @@ pub struct RpcDb<T, P> {
     pub provider: P,
     /// The block to fetch data from.
     pub block: BlockId,
+    /// The subblock's accounts.
+    pub subblock_accounts: RefCell<HashMap<Address, AccountInfo>>,
+    /// The subblock's storage.
+    pub subblock_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The cached accounts.
     pub accounts: RefCell<HashMap<Address, AccountInfo>>,
-    /// The cached storage values.
+    /// The cached storage.
     pub storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The oldest block whose header/hash has been requested.
     pub oldest_ancestor: RefCell<u64>,
@@ -49,6 +54,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         RpcDb {
             provider,
             block: block.into(),
+            subblock_accounts: RefCell::new(HashMap::new()),
+            subblock_storage: RefCell::new(HashMap::new()),
             accounts: RefCell::new(HashMap::new()),
             storage: RefCell::new(HashMap::new()),
             oldest_ancestor: RefCell::new(block),
@@ -60,9 +67,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
     pub async fn fetch_account_info(&self, address: Address) -> Result<AccountInfo, RpcDbError> {
         tracing::debug!("fetching account info for address: {}", address);
 
-        // if self.accounts.borrow().contains_key(&address) {
-        //     return Ok(self.accounts.borrow().get(&address).unwrap().clone());
-        // }
+        // Prioritize fetching from the cache.
+        if self.accounts.borrow().contains_key(&address) {
+            return Ok(self.accounts.borrow().get(&address).unwrap().clone());
+        }
 
         // Fetch the proof for the account.
         let proof = self
@@ -90,7 +98,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         };
 
         // Record the account info to the state.
-        self.accounts.borrow_mut().insert(address, account_info.clone());
+        self.subblock_accounts.borrow_mut().insert(address, account_info.clone());
 
         Ok(account_info)
     }
@@ -103,6 +111,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
     ) -> Result<U256, RpcDbError> {
         tracing::debug!("fetching storage value at address: {}, index: {}", address, index);
 
+        // Prioritize fetching from the cache.
+        if let Some(storage_map) = self.storage.borrow().get(&address) {
+            if let Some(value) = storage_map.get(&index) {
+                return Ok(*value);
+            }
+        }
+
         // Fetch the storage value.
         let value = self
             .provider
@@ -112,7 +127,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             .map_err(|e| RpcDbError::RpcError(e.to_string()))?;
 
         // Record the storage value to the state.
-        let mut storage_values = self.storage.borrow_mut();
+        let mut storage_values = self.subblock_storage.borrow_mut();
         let entry = storage_values.entry(address).or_default();
         entry.insert(index, value);
 
@@ -142,8 +157,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
     /// Gets all the state keys used. The client uses this to read the actual state data from tries.
     pub fn get_state_requests(&self) -> HashMap<Address, Vec<U256>> {
-        let accounts = self.accounts.borrow();
-        let storage = self.storage.borrow();
+        let accounts = self.subblock_accounts.borrow();
+        let storage = self.subblock_storage.borrow();
 
         accounts
             .keys()
@@ -161,8 +176,22 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
     /// Advances the subblock.
     pub fn advance_subblock(&self) {
-        self.accounts.borrow_mut().clear();
-        self.storage.borrow_mut().clear();
+        self.subblock_accounts.borrow_mut().clear();
+        self.subblock_storage.borrow_mut().clear();
+    }
+
+    pub fn update_state_diffs(&mut self, state_diffs: &BundleState) {
+        for (address, account) in state_diffs.state.iter() {
+            match &account.info {
+                Some(info) => self.accounts.borrow_mut().insert(*address, info.clone()),
+                None => self.accounts.borrow_mut().insert(*address, AccountInfo::default()),
+            };
+        }
+        for (address, storage) in state_diffs.state.iter() {
+            let storage_map =
+                storage.storage.iter().map(|(k, v)| (*k, v.present_value())).collect();
+            self.storage.borrow_mut().insert(*address, storage_map);
+        }
     }
 
     /// Gets all account bytecodes.

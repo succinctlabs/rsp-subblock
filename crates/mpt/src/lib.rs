@@ -1,5 +1,6 @@
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
+use revm_primitives::{ruint::aliases::U256, FixedBytes};
 use serde::{Deserialize, Serialize};
 
 /// Module containing MPT code adapted from `zeth`.
@@ -8,7 +9,7 @@ pub use mpt::Error;
 use mpt::{proofs_to_tries, transition_proofs_to_tries, MptNode};
 
 /// Ethereum state trie and account storage tries.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EthereumState {
     pub state_trie: MptNode,
     pub storage_tries: HashMap<B256, MptNode>,
@@ -35,6 +36,41 @@ impl EthereumState {
     /// Mutates state based on diffs provided in [`HashedPostState`].
     pub fn update(&mut self, post_state: &HashedPostState) {
         for (hashed_address, account) in post_state.accounts.iter() {
+            // // let hashed_address = hashed_address.as_slice;
+
+            // match account {
+            //     Some(account) => {
+            //         let state_storage = &post_state.storages.get(hashed_address).unwrap();
+            //         let storage_root = {
+            //             let storage_trie = self.storage_tries.entry(*hashed_address).or_default();
+            //             if state_storage.wiped {
+            //                 storage_trie.clear();
+            //             }
+
+            //             for (key, value) in state_storage.storage.iter() {
+            //                 let key = key.as_slice();
+            //                 if value.is_zero() {
+            //                     storage_trie.delete(key).unwrap();
+            //                 } else {
+            //                     storage_trie.insert_rlp(key, *value).unwrap();
+            //                 }
+            //             }
+
+            //             storage_trie.hash()
+            //         };
+
+            //         let state_account = TrieAccount {
+            //             nonce: account.nonce,
+            //             balance: account.balance,
+            //             storage_root,
+            //             code_hash: account.get_bytecode_hash(),
+            //         };
+            //         self.state_trie.insert_rlp(hashed_address.as_slice(), state_account).unwrap();
+            //     }
+            //     None => {
+            //         self.state_trie.delete(hashed_address.as_slice()).unwrap();
+            //     }
+            // }
             let hashed_address = hashed_address.as_slice();
 
             match account {

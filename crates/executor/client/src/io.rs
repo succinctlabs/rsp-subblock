@@ -3,6 +3,7 @@ use std::{collections::HashMap, iter::once};
 use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_primitives::{revm_primitives::AccountInfo, Address, Block, Header, B256, U256};
+use reth_revm::database;
 use reth_trie::TrieAccount;
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
@@ -26,6 +27,21 @@ pub struct ClientExecutorInput {
     pub ancestor_headers: Vec<Header>,
     /// Network state as of the parent block.
     pub parent_state: EthereumState,
+    /// Requests to account state and storage slots.
+    pub state_requests: HashMap<Address, Vec<U256>>,
+    /// Account bytecodes.
+    pub bytecodes: Vec<Bytecode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SimpleClientExecutorInput {
+    /// The current block (which will be executed inside the client).
+    pub current_block: Block,
+    /// The previous block headers starting from the most recent. There must be at least one header
+    /// to provide the parent state root.
+    pub ancestor_headers: Vec<Header>,
+    /// Simple DB
+    pub simple_db: SimpleDB,
     /// Requests to account state and storage slots.
     pub state_requests: HashMap<Address, Vec<U256>>,
     /// Account bytecodes.
@@ -79,6 +95,26 @@ pub struct TrieDB<'a> {
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SimpleDB {
+    /// The cached accounts.
+    pub accounts: HashMap<Address, AccountInfo>,
+    /// The cached storage.
+    pub storage: HashMap<Address, HashMap<U256, U256>>,
+    /// The cached block hashes.
+    pub block_hashes: HashMap<u64, B256>,
+}
+
+impl SimpleDB {
+    pub fn new(
+        accounts: HashMap<Address, AccountInfo>,
+        storage: HashMap<Address, HashMap<U256, U256>>,
+        block_hashes: HashMap<u64, B256>,
+    ) -> Self {
+        Self { accounts, storage, block_hashes }
+    }
+}
+
 impl<'a> TrieDB<'a> {
     pub fn new(
         inner: &'a EthereumState,
@@ -112,7 +148,8 @@ impl<'a> DatabaseRef for TrieDB<'a> {
 
     /// Get account code by its hash.
     fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
-        Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
+        unimplemented!()
+        // Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
     }
 
     /// Get storage value of address at index.
@@ -128,8 +165,37 @@ impl<'a> DatabaseRef for TrieDB<'a> {
 
         Ok(storage_trie
             .get_rlp::<U256>(keccak256(index.to_be_bytes::<32>()).as_slice())
-            .expect("Can't get from MPT")
+            .expect("Can get from MPT")
             .unwrap_or_default())
+    }
+
+    /// Get block hash by block number.
+    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
+        Ok(*self
+            .block_hashes
+            .get(&number)
+            .expect("A block hash must be provided for each block number"))
+    }
+}
+
+impl DatabaseRef for SimpleDB {
+    /// The database error type.
+    type Error = ProviderError;
+
+    /// Get basic account information.
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        Ok(self.accounts.get(&address).cloned())
+    }
+
+    /// Get account code by its hash.
+    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
+        unimplemented!()
+        // Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
+    }
+
+    /// Get storage value of address at index.
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        Ok(*self.storage.get(&address).unwrap().get(&index).unwrap())
     }
 
     /// Get block hash by block number.

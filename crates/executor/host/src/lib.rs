@@ -1,16 +1,21 @@
 mod error;
 pub use error::Error as HostError;
+use reth_trie::HashedPostState;
 
-use std::{collections::BTreeSet, marker::PhantomData};
+use std::{
+    collections::{BTreeSet, HashMap},
+    marker::PhantomData,
+};
 
 use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
-use reth_primitives::{proofs, Block, Bloom, Receipts, B256};
+use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::CacheDB;
+use revm_primitives::{keccak256, Address};
 use rsp_client_executor::{
-    io::ClientExecutorInput, ChainVariant, EthereumVariant, LineaVariant, OptimismVariant,
-    SepoliaVariant, Variant,
+    io::{ClientExecutorInput, SimpleClientExecutorInput, SimpleDB},
+    ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
 };
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
@@ -25,7 +30,16 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 
-const TRANSACTIONS_PER_SUBBLOCK: u64 = 10;
+const TRANSACTIONS_PER_SUBBLOCK: u64 = 32;
+
+fn merge_state_requests(
+    state_requests: &mut HashMap<Address, Vec<U256>>,
+    subblock_state_requests: &HashMap<Address, Vec<U256>>,
+) {
+    for (address, keys) in subblock_state_requests.iter() {
+        state_requests.entry(*address).or_default().extend(keys.iter().cloned());
+    }
+}
 
 impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P> {
     /// Create a new [`HostExecutor`] with a specific [Provider] and [Transport].
@@ -53,7 +67,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     pub async fn execute_subblock(
         &self,
         block_number: u64,
-    ) -> Result<Vec<ClientExecutorInput>, HostError> {
+    ) -> Result<Vec<SimpleClientExecutorInput>, HostError> {
         self.execute_variant_subblocks::<EthereumVariant>(block_number).await
     }
 
@@ -246,7 +260,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     async fn execute_variant_subblocks<V>(
         &self,
         block_number: u64,
-    ) -> Result<Vec<ClientExecutorInput>, HostError>
+    ) -> Result<Vec<SimpleClientExecutorInput>, HostError>
     where
         V: Variant,
     {
@@ -269,7 +283,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let total_transactions = current_block.body.len() as u64;
 
         let previous_block_hash = previous_block.hash_slow();
-        let mut previous_block_state_root = previous_block.state_root;
 
         // Setup the spec for the block executor.
         tracing::info!("setting up the spec for the block executor");
@@ -277,7 +290,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         // Setup the database for the block executor.
         tracing::info!("setting up the database for the block executor");
-        let rpc_db = RpcDb::new(self.provider.clone(), block_number - 1);
+        let mut rpc_db = RpcDb::new(self.provider.clone(), block_number - 1);
         // let cache_db = CacheDB::new(&rpc_db);
 
         // Execute the block and fetch all the necessary data along the way.
@@ -293,9 +306,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let executor_difficulty = current_block.header.difficulty;
 
-        let mut state = None;
-
-        let mut global_execution_outcome = ExecutionOutcome::default();
+        let mut all_state_requests: HashMap<Address, Vec<alloy_primitives::Uint<256, 4>>> =
+            HashMap::new();
+        let mut all_post_states = HashedPostState::default();
 
         let mut num_transactions_completed: u64 = 0;
 
@@ -306,7 +319,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
             let upper = std::cmp::min(
-                current_block.body.len() as u64 - num_transactions_completed,
+                current_block.body.len() as u64,
                 num_transactions_completed + TRANSACTIONS_PER_SUBBLOCK,
             );
             let mut subblock_input = executor_block_input.clone();
@@ -323,17 +336,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 upper
             );
 
-            // Commented this out for now, since gas used won't line up.
-            // need to check this at the end.
-            // Validate the block post execution.
-            // tracing::info!("validating the block post execution");
-            // V::validate_block_post_execution(
-            //     &subblock_input,
-            //     &spec,
-            //     &subblock_output.receipts,
-            //     &subblock_output.requests,
-            // )?;
-
             // Accumulate the logs bloom.
             tracing::info!("accumulating the logs bloom");
             let mut logs_bloom = Bloom::default();
@@ -342,7 +344,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             });
             global_logs_bloom.accrue_bloom(&logs_bloom);
 
-            tracing::info!("bundle state: {:?}", subblock_output.state.state.len());
+            // Using the diffs from the bundle, update the RPC DB.
+            rpc_db.update_state_diffs(&subblock_output.state);
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(
@@ -352,96 +355,99 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 vec![subblock_output.requests.into()],
             );
 
+            let post_state = executor_outcome.hash_state_slow();
+            post_state.clone().into_sorted().display();
+
+            all_post_states.extend(post_state);
+
             let subblock_state_requests = rpc_db.get_state_requests();
-            rpc_db.advance_subblock();
+            merge_state_requests(&mut all_state_requests, &subblock_state_requests);
 
-            // For the first subblock, build the state from transition proofs.
-            if state.is_none() {
-                let mut before_storage_proofs = Vec::new();
-                let mut after_storage_proofs = Vec::new();
-
-                for (address, used_keys) in subblock_state_requests.iter() {
-                    let modified_keys = executor_outcome
-                        .state()
-                        .state
-                        .get(address)
-                        .map(|account| {
-                            account
-                                .storage
-                                .keys()
-                                .map(|key| B256::from(*key))
-                                .collect::<BTreeSet<_>>()
-                        })
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect::<Vec<_>>();
-
-                    let keys = used_keys
-                        .iter()
-                        .map(|key| B256::from(*key))
-                        .chain(modified_keys.clone().into_iter())
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect::<Vec<_>>();
-
-                    let storage_proof = self
-                        .provider
-                        .get_proof(*address, keys.clone())
-                        .block_id((block_number - 1).into())
-                        .await?;
-                    before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
-
-                    let storage_proof = self
-                        .provider
-                        .get_proof(*address, modified_keys)
-                        .block_id((block_number).into())
-                        .await?;
-                    after_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
-                }
-
-                state = Some(EthereumState::from_transition_proofs(
-                    previous_block.state_root,
-                    &before_storage_proofs
-                        .iter()
-                        .map(|item| (item.address, item.clone()))
-                        .collect(),
-                    &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
-                )?);
-            } else {
-                state.as_mut().unwrap().update(&executor_outcome.hash_state_slow());
-            }
-
-            global_execution_outcome.extend(executor_outcome);
-            // if state_root != current_block.state_root {
-            //     return Err(HostError::StateRootMismatch(state_root, current_block.state_root));
-            // }
-
-            // Create the client input.
-            let mut client_input = ClientExecutorInput {
+            // For diff approach, this doesn't really matter.
+            let mut client_input = SimpleClientExecutorInput {
                 current_block: V::pre_process_block(&current_block),
                 ancestor_headers: vec![],
-                parent_state: state.clone().unwrap(),
+                simple_db: SimpleDB {
+                    accounts: rpc_db.subblock_accounts.borrow().clone(),
+                    storage: rpc_db.subblock_storage.borrow().clone(),
+                    block_hashes: HashMap::new(),
+                },
                 state_requests: subblock_state_requests,
                 bytecodes: rpc_db.get_bytecodes(),
             };
-
-            // Truncate the body to the number of transactions we executed.
+            // chop off the correct transactions for this subblock
             client_input.current_block.body = client_input.current_block.body
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
 
-            // Advance the subblock.
+            // Advance subblock
             num_transactions_completed = upper;
-            tracing::info!("successfully generated client input");
+            rpc_db.advance_subblock();
 
             result.push(client_input);
         }
 
-        if previous_block_state_root != current_block.state_root {
-            return Err(HostError::StateRootMismatch(
-                previous_block_state_root,
-                current_block.state_root,
-            ));
+        // Commented this out for now, since gas used won't line up.
+        // need to check this at the end.
+        // Validate the block post execution.
+        // tracing::info!("validating the block post execution");
+        // V::validate_block_post_execution(
+        //     &subblock_input,
+        //     &spec,
+        //     &subblock_output.receipts,
+        //     &subblock_output.requests,
+        // )?;
+
+        // Build parent state from modified keys and used keys from this subblock
+        let mut before_storage_proofs = Vec::new();
+        let mut after_storage_proofs = Vec::new();
+        for (address, used_keys) in all_state_requests.iter() {
+            let modified_keys = all_post_states
+                .storages
+                .get(&keccak256(address))
+                .map(|account| {
+                    account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            let keys = used_keys
+                .iter()
+                .map(|key| B256::from(*key))
+                .chain(modified_keys.clone().into_iter())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+
+            let storage_proof = self
+                .provider
+                .get_proof(*address, keys.clone())
+                .block_id((block_number - 1).into())
+                .await?;
+            before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+
+            let storage_proof = self
+                .provider
+                .get_proof(*address, modified_keys)
+                .block_id((block_number).into())
+                .await?;
+            after_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+        }
+
+        let mut state = EthereumState::from_transition_proofs(
+            previous_block.state_root,
+            &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
+            &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
+        )?;
+
+        all_post_states.clone().into_sorted().display();
+
+        state.update(&all_post_states);
+
+        let state_root = state.state_root();
+        if state_root != current_block.state_root {
+            return Err(HostError::StateRootMismatch(state_root, current_block.state_root));
         }
 
         // Derive the block header.
