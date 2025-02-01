@@ -9,7 +9,7 @@ use std::{borrow::BorrowMut, fmt::Display};
 
 use custom::CustomEvmConfig;
 use error::ClientError;
-use io::ClientExecutorInput;
+use io::{ClientExecutorInput, SimpleClientExecutorInput};
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
 use reth_ethereum_consensus::validate_block_post_execution as validate_block_post_execution_ethereum;
@@ -21,6 +21,7 @@ use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
 use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
 use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
+use reth_trie::HashedPostState;
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, B256, U256};
 
@@ -197,13 +198,16 @@ impl ClientExecutor {
         Ok(header)
     }
 
-    pub fn execute_subblock<V>(&self, mut input: ClientExecutorInput) -> Result<B256, ClientError>
+    pub fn execute_subblock<V>(
+        &self,
+        input: SimpleClientExecutorInput,
+    ) -> Result<HashedPostState, ClientError>
     where
         V: Variant,
     {
         // Initialize the witnessed database with verified storage proofs.
         let wrap_ref = profile!("initialize witness db", {
-            let trie_db = input.witness_db().unwrap();
+            let trie_db = input.simple_db;
             WrapDatabaseRef(trie_db)
         });
 
@@ -246,17 +250,7 @@ impl ClientExecutor {
             vec![executor_output.requests.into()],
         );
 
-        // Verify the state root.
-        let state_root = profile!("compute state root", {
-            input.parent_state.update(&executor_outcome.hash_state_slow());
-            input.parent_state.state_root()
-        });
-
-        if state_root != input.current_block.state_root {
-            return Err(ClientError::MismatchedStateRoot);
-        }
-
-        Ok(state_root)
+        Ok(executor_outcome.hash_state_slow())
     }
 }
 

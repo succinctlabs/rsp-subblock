@@ -363,11 +363,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 vec![subblock_output.requests.into()],
             );
 
-            // Compress the output into a `HashedPostState`, and accumulate it into `all_post_states`.
-            let post_state = executor_outcome.hash_state_slow();
-            // post_state.clone().into_sorted().display();
+            all_executor_outcomes.extend(executor_outcome);
 
-            all_post_states.extend(post_state);
+            // // Compress the output into a `HashedPostState`, and accumulate it into `all_post_states`.
+            // let post_state = executor_outcome.hash_state_slow();
+            // // post_state.clone().into_sorted().display();
+
+            // all_post_states.extend(post_state);
 
             // Merge the state requests from the subblock into `all_state_requests`.
             let subblock_state_requests = rpc_db.get_state_requests();
@@ -412,30 +414,30 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut after_storage_proofs = Vec::new();
 
         for (address, used_keys) in all_state_requests.iter() {
-            let modified_keys = all_post_states
-                .storages
-                .get(&keccak256(address))
-                .map(|account| {
-                    account
-                        .storage
-                        .keys()
-                        .map(|key| *account.inverses.get(key).expect("inverse not found"))
-                        .collect::<BTreeSet<_>>()
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .collect::<Vec<_>>();
-
-            // let modified_keys = all_executor_outcomes
-            //     .state()
-            //     .state
-            //     .get(address)
+            // let modified_keys = all_post_states
+            //     .storages
+            //     .get(&keccak256(address))
             //     .map(|account| {
-            //         account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+            //         account
+            //             .storage
+            //             .keys()
+            //             .map(|key| *account.inverses.get(key).expect("inverse not found"))
+            //             .collect::<BTreeSet<_>>()
             //     })
             //     .unwrap_or_default()
             //     .into_iter()
             //     .collect::<Vec<_>>();
+
+            let modified_keys = all_executor_outcomes
+                .state()
+                .state
+                .get(address)
+                .map(|account| {
+                    account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>();
 
             // if wrong_modified_keys != modified_keys {
             //     println!("wrong modified keys: {:?}", wrong_modified_keys);
@@ -471,9 +473,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
         )?;
 
-        all_post_states.clone().into_sorted().display();
+        // all_post_states.clone().into_sorted().display();
 
-        state.update(&all_post_states);
+        state.update(&all_executor_outcomes.hash_state_slow());
 
         let state_root = state.state_root();
         if state_root != current_block.state_root {

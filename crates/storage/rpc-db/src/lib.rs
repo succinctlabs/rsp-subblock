@@ -69,7 +69,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
         // Prioritize fetching from the cache.
         if self.cache_accounts.borrow().contains_key(&address) {
-            println!("cache hit @ {:?}", keccak256(&address));
             return Ok(self.cache_accounts.borrow().get(&address).unwrap().clone());
         }
 
@@ -115,7 +114,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         // Prioritize fetching from the cache.
         if let Some(storage_map) = self.cache_storage.borrow().get(&address) {
             if let Some(value) = storage_map.get(&index) {
-                println!("cache hit @ address: {:?}, index: {:?}", keccak256(address), index);
                 return Ok(*value);
             }
         }
@@ -184,7 +182,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
     pub fn update_state_diffs(&mut self, state_diffs: &BundleState) {
         for (address, account) in state_diffs.state.iter() {
-            println!("address changed: {:?}", keccak256(address));
             match &account.info {
                 Some(info) => self.cache_accounts.borrow_mut().insert(*address, info.clone()),
                 None => self.cache_accounts.borrow_mut().insert(*address, AccountInfo::default()), // This indicates a destroyed account
