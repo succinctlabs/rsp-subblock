@@ -14,7 +14,7 @@ use reth_primitives::{
 use reth_revm::db::BundleState;
 use reth_revm::DatabaseRef;
 use reth_storage_errors::{db::DatabaseError, provider::ProviderError};
-use revm_primitives::HashMap;
+use revm_primitives::{keccak256, HashMap};
 
 /// A database that fetches data from a [Provider] over a [Transport].
 #[derive(Debug, Clone)]
@@ -28,9 +28,9 @@ pub struct RpcDb<T, P> {
     /// The subblock's storage.
     pub subblock_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The cached accounts.
-    pub accounts: RefCell<HashMap<Address, AccountInfo>>,
+    pub cache_accounts: RefCell<HashMap<Address, AccountInfo>>,
     /// The cached storage.
-    pub storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
+    pub cache_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The oldest block whose header/hash has been requested.
     pub oldest_ancestor: RefCell<u64>,
     /// A phantom type to make the struct generic over the transport.
@@ -56,8 +56,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             block: block.into(),
             subblock_accounts: RefCell::new(HashMap::new()),
             subblock_storage: RefCell::new(HashMap::new()),
-            accounts: RefCell::new(HashMap::new()),
-            storage: RefCell::new(HashMap::new()),
+            cache_accounts: RefCell::new(HashMap::new()),
+            cache_storage: RefCell::new(HashMap::new()),
             oldest_ancestor: RefCell::new(block),
             _phantom: PhantomData,
         }
@@ -68,8 +68,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         tracing::debug!("fetching account info for address: {}", address);
 
         // Prioritize fetching from the cache.
-        if self.accounts.borrow().contains_key(&address) {
-            return Ok(self.accounts.borrow().get(&address).unwrap().clone());
+        if self.cache_accounts.borrow().contains_key(&address) {
+            println!("cache hit @ {:?}", keccak256(&address));
+            return Ok(self.cache_accounts.borrow().get(&address).unwrap().clone());
         }
 
         // Fetch the proof for the account.
@@ -112,8 +113,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         tracing::debug!("fetching storage value at address: {}, index: {}", address, index);
 
         // Prioritize fetching from the cache.
-        if let Some(storage_map) = self.storage.borrow().get(&address) {
+        if let Some(storage_map) = self.cache_storage.borrow().get(&address) {
             if let Some(value) = storage_map.get(&index) {
+                println!("cache hit @ address: {:?}, index: {:?}", keccak256(address), index);
                 return Ok(*value);
             }
         }
@@ -182,21 +184,24 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
     pub fn update_state_diffs(&mut self, state_diffs: &BundleState) {
         for (address, account) in state_diffs.state.iter() {
+            println!("address changed: {:?}", keccak256(address));
             match &account.info {
-                Some(info) => self.accounts.borrow_mut().insert(*address, info.clone()),
-                None => self.accounts.borrow_mut().insert(*address, AccountInfo::default()),
+                Some(info) => self.cache_accounts.borrow_mut().insert(*address, info.clone()),
+                None => self.cache_accounts.borrow_mut().insert(*address, AccountInfo::default()), // This indicates a destroyed account
             };
-        }
-        for (address, storage) in state_diffs.state.iter() {
-            let storage_map =
-                storage.storage.iter().map(|(k, v)| (*k, v.present_value())).collect();
-            self.storage.borrow_mut().insert(*address, storage_map);
+            account.storage.iter().for_each(|(k, v)| {
+                self.cache_storage
+                    .borrow_mut()
+                    .entry(*address)
+                    .or_default()
+                    .insert(*k, v.present_value());
+            });
         }
     }
 
     /// Gets all account bytecodes.
     pub fn get_bytecodes(&self) -> Vec<Bytecode> {
-        let accounts = self.accounts.borrow();
+        let accounts = self.subblock_accounts.borrow();
 
         accounts
             .values()

@@ -30,7 +30,7 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 
-const TRANSACTIONS_PER_SUBBLOCK: u64 = 32;
+const TRANSACTIONS_PER_SUBBLOCK: u64 = 31;
 
 fn merge_state_requests(
     state_requests: &mut HashMap<Address, Vec<U256>>,
@@ -306,8 +306,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let executor_difficulty = current_block.header.difficulty;
 
-        let mut all_state_requests: HashMap<Address, Vec<alloy_primitives::Uint<256, 4>>> =
-            HashMap::new();
+        let mut all_executor_outcomes = ExecutionOutcome::default();
+
+        let mut all_state_requests = HashMap::new();
         let mut all_post_states = HashedPostState::default();
 
         let mut num_transactions_completed: u64 = 0;
@@ -328,6 +329,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             subblock_input.senders = subblock_input.senders
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
+
+            if num_transactions_completed != 0 {
+                subblock_input.is_first_subblock = false;
+            }
+            if upper != current_block.body.len() as u64 {
+                subblock_input.is_last_subblock = false;
+            }
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
 
             tracing::info!(
@@ -355,15 +363,16 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 vec![subblock_output.requests.into()],
             );
 
+            // Compress the output into a `HashedPostState`, and accumulate it into `all_post_states`.
             let post_state = executor_outcome.hash_state_slow();
-            post_state.clone().into_sorted().display();
+            // post_state.clone().into_sorted().display();
 
             all_post_states.extend(post_state);
 
+            // Merge the state requests from the subblock into `all_state_requests`.
             let subblock_state_requests = rpc_db.get_state_requests();
             merge_state_requests(&mut all_state_requests, &subblock_state_requests);
 
-            // For diff approach, this doesn't really matter.
             let mut client_input = SimpleClientExecutorInput {
                 current_block: V::pre_process_block(&current_block),
                 ancestor_headers: vec![],
@@ -401,16 +410,37 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         // Build parent state from modified keys and used keys from this subblock
         let mut before_storage_proofs = Vec::new();
         let mut after_storage_proofs = Vec::new();
+
         for (address, used_keys) in all_state_requests.iter() {
             let modified_keys = all_post_states
                 .storages
                 .get(&keccak256(address))
                 .map(|account| {
-                    account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    account
+                        .storage
+                        .keys()
+                        .map(|key| *account.inverses.get(key).expect("inverse not found"))
+                        .collect::<BTreeSet<_>>()
                 })
                 .unwrap_or_default()
                 .into_iter()
                 .collect::<Vec<_>>();
+
+            // let modified_keys = all_executor_outcomes
+            //     .state()
+            //     .state
+            //     .get(address)
+            //     .map(|account| {
+            //         account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+            //     })
+            //     .unwrap_or_default()
+            //     .into_iter()
+            //     .collect::<Vec<_>>();
+
+            // if wrong_modified_keys != modified_keys {
+            //     println!("wrong modified keys: {:?}", wrong_modified_keys);
+            //     println!("modified keys: {:?}", modified_keys);
+            // }
 
             let keys = used_keys
                 .iter()
