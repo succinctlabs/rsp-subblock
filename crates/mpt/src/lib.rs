@@ -1,6 +1,5 @@
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
-use revm_primitives::{ruint::aliases::U256, FixedBytes};
 use serde::{Deserialize, Serialize};
 
 /// Module containing MPT code adapted from `zeth`.

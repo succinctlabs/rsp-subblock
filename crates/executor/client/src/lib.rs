@@ -9,10 +9,13 @@ use std::{borrow::BorrowMut, fmt::Display};
 
 use custom::CustomEvmConfig;
 use error::ClientError;
-use io::{ClientExecutorInput, SimpleClientExecutorInput};
+use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput};
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
-use reth_ethereum_consensus::validate_block_post_execution as validate_block_post_execution_ethereum;
+use reth_ethereum_consensus::{
+    validate_block_post_execution as validate_block_post_execution_ethereum,
+    validate_subblock_post_execution as validate_subblock_post_execution_ethereum,
+};
 use reth_evm::execute::{
     BlockExecutionError, BlockExecutionOutput, BlockExecutorProvider, Executor,
 };
@@ -21,9 +24,8 @@ use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
 use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
 use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
-use reth_trie::HashedPostState;
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{address, B256, U256};
+use revm_primitives::{address, U256};
 
 /// Chain ID for Ethereum Mainnet.
 pub const CHAIN_ID_ETH_MAINNET: u64 = 0x1;
@@ -54,21 +56,21 @@ pub trait Variant {
     where
         DB: Database<Error: Into<ProviderError> + Display>;
 
-    fn execute_subblock<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-        range: (u64, u64),
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>;
-
     fn validate_block_post_execution(
         block: &BlockWithSenders,
         chain_spec: &ChainSpec,
         receipts: &[Receipt],
         requests: &[Request],
     ) -> Result<(), ConsensusError>;
+
+    fn validate_subblock_aggregation(
+        _header: &Header,
+        _chain_spec: &ChainSpec,
+        _receipts: &[Receipt],
+        _requests: &[Request],
+    ) -> Result<(), ConsensusError> {
+        unimplemented!()
+    }
 
     fn pre_process_block(block: &Block) -> Block {
         block.clone()
@@ -198,42 +200,33 @@ impl ClientExecutor {
         Ok(header)
     }
 
-    pub fn execute_subblock<V>(
-        &self,
-        input: SimpleClientExecutorInput,
-    ) -> Result<HashedPostState, ClientError>
+    pub fn execute_subblock<V>(&self, input: SubblockInput) -> Result<SubblockOutput, ClientError>
     where
         V: Variant,
     {
-        // Initialize the witnessed database with verified storage proofs.
-        let wrap_ref = profile!("initialize witness db", {
-            let trie_db = input.simple_db;
-            WrapDatabaseRef(trie_db)
+        // Initialize the unauthenticated database.
+        let wrap_ref = profile!("initialize simple db", {
+            let simple_db = input.simple_db;
+            WrapDatabaseRef(simple_db)
         });
 
         // Execute the block.
-        let spec = V::spec();
-        let executor_block_input = profile!("recover senders", {
+        let mut executor_block_input = profile!("recover senders", {
             input
                 .current_block
                 .clone()
                 .with_recovered_senders()
                 .ok_or(ClientError::SignatureRecoveryFailed)
         })?;
+        executor_block_input.is_first_subblock = input.is_first_subblock;
+        executor_block_input.is_last_subblock = input.is_last_subblock;
         let executor_difficulty = input.current_block.header.difficulty;
         let executor_output = profile!("execute", {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
         })?;
 
-        // Validate the block post execution.
-        profile!("validate block post-execution", {
-            V::validate_block_post_execution(
-                &executor_block_input,
-                &spec,
-                &executor_output.receipts,
-                &executor_output.requests,
-            )
-        })?;
+        let requests = executor_output.requests.clone();
+        let receipts = executor_output.receipts.clone();
 
         let mut logs_bloom = Bloom::default();
         profile!("accrue logs bloom", {
@@ -242,15 +235,86 @@ impl ClientExecutor {
             })
         });
 
-        // Convert the output to an execution outcome.
-        let executor_outcome = ExecutionOutcome::new(
-            executor_output.state,
-            Receipts::from(executor_output.receipts),
-            input.current_block.header.number,
-            vec![executor_output.requests.into()],
-        );
+        let subblock_output = profile!("finalize output", {
+            // Convert the output to an execution outcome.
+            let executor_outcome = ExecutionOutcome::new(
+                executor_output.state,
+                Receipts::from(executor_output.receipts),
+                input.current_block.header.number,
+                vec![executor_output.requests.into()],
+            );
 
-        Ok(executor_outcome.hash_state_slow())
+            SubblockOutput {
+                state_diff: executor_outcome.hash_state_slow(),
+                logs_bloom,
+                receipts,
+                requests,
+            }
+        });
+
+        Ok(subblock_output)
+    }
+
+    pub fn execute_aggregation<V: Variant>(
+        &self,
+        subblock_outputs: Vec<SubblockOutput>,
+        mut aggregation_input: AggregationInput,
+    ) -> Result<Header, ClientError> {
+        let mut aggregated_output = SubblockOutput::default();
+        profile!("aggregate", {
+            for subblock_output in subblock_outputs {
+                aggregated_output.extend(subblock_output);
+            }
+        });
+
+        let mutated_state = profile!("update parent state", {
+            let mut parent_state = std::mem::take(&mut aggregation_input.parent_state);
+            parent_state.update(&aggregated_output.state_diff);
+            parent_state
+        });
+
+        profile!("validate subblock aggregation", {
+            V::validate_subblock_aggregation(
+                &aggregation_input.current_block.header,
+                &V::spec(),
+                &aggregated_output.receipts,
+                &aggregated_output.requests,
+            )
+            .expect("failed to validate subblock aggregation")
+        });
+
+        let state_root = profile!("verify state root", { mutated_state.state_root() });
+
+        if state_root != aggregation_input.current_block.state_root {
+            panic!(
+                "mismatched state root: {state_root} != {:?}",
+                aggregation_input.current_block.state_root
+            );
+        }
+
+        // Derive the block header.
+        //
+        // Note: the receipts root and gas used are verified by `validate_block_post_execution`.
+        let mut header = aggregation_input.current_block.header.clone();
+        header.parent_hash = aggregation_input.parent_header().hash_slow();
+        header.ommers_hash = proofs::calculate_ommers_root(&aggregation_input.current_block.ommers);
+        header.state_root = aggregation_input.current_block.state_root;
+        header.transactions_root =
+            proofs::calculate_transaction_root(&aggregation_input.current_block.body);
+        header.receipts_root = aggregation_input.current_block.header.receipts_root;
+        header.withdrawals_root = aggregation_input
+            .current_block
+            .withdrawals
+            .take()
+            .map(|w| proofs::calculate_withdrawals_root(w.into_inner().as_slice()));
+        header.logs_bloom = aggregated_output.logs_bloom;
+        header.requests_root = aggregation_input
+            .current_block
+            .requests
+            .as_ref()
+            .map(|r| proofs::calculate_requests_root(&r.0));
+
+        Ok(header)
     }
 }
 
@@ -275,18 +339,6 @@ impl Variant for EthereumVariant {
         .execute((executor_block_input, executor_difficulty).into())
     }
 
-    fn execute_subblock<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-        range: (u64, u64),
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        todo!()
-    }
-
     fn validate_block_post_execution(
         block: &BlockWithSenders,
         chain_spec: &ChainSpec,
@@ -294,6 +346,15 @@ impl Variant for EthereumVariant {
         requests: &[Request],
     ) -> Result<(), ConsensusError> {
         validate_block_post_execution_ethereum(block, chain_spec, receipts, requests)
+    }
+
+    fn validate_subblock_aggregation(
+        header: &Header,
+        chain_spec: &ChainSpec,
+        receipts: &[Receipt],
+        requests: &[Request],
+    ) -> Result<(), ConsensusError> {
+        validate_subblock_post_execution_ethereum(header, chain_spec, receipts, requests)
     }
 }
 
@@ -316,18 +377,6 @@ impl Variant for OptimismVariant {
         )
         .executor(cache_db)
         .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn execute_subblock<DB>(
-        _executor_block_input: &BlockWithSenders,
-        _executor_difficulty: U256,
-        _cache_db: DB,
-        _range: (u64, u64),
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        todo!()
     }
 
     fn validate_block_post_execution(
@@ -359,18 +408,6 @@ impl Variant for LineaVariant {
         )
         .executor(cache_db)
         .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn execute_subblock<DB>(
-        _executor_block_input: &BlockWithSenders,
-        _executor_difficulty: U256,
-        _cache_db: DB,
-        _range: (u64, u64),
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        todo!()
     }
 
     fn validate_block_post_execution(
@@ -421,18 +458,6 @@ impl Variant for SepoliaVariant {
         )
         .executor(cache_db)
         .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn execute_subblock<DB>(
-        _executor_block_input: &BlockWithSenders,
-        _executor_difficulty: U256,
-        _cache_db: DB,
-        _range: (u64, u64),
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        todo!()
     }
 
     fn validate_block_post_execution(

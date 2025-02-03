@@ -4677,6 +4677,7 @@ dependencies = [
  "reth-storage-errors",
  "reth-trie-common",
  "revm",
+ "serde",
  "tracing",
 ]
 

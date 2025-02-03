@@ -2,9 +2,10 @@ use std::{collections::HashMap, iter::once};
 
 use itertools::Itertools;
 use reth_errors::ProviderError;
-use reth_primitives::{revm_primitives::AccountInfo, Address, Block, Header, B256, U256};
-use reth_revm::database;
-use reth_trie::TrieAccount;
+use reth_primitives::{
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Request, B256, U256,
+};
+use reth_trie::{HashedPostState, TrieAccount};
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
 //use rsp_witness_db::WitnessDb;
@@ -34,18 +35,39 @@ pub struct ClientExecutorInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SimpleClientExecutorInput {
+pub struct SubblockInput {
+    /// The current block (which will be executed inside the client).
+    pub current_block: Block,
+    /// Simple DB
+    pub simple_db: SimpleDB,
+    /// Whether this is the first subblock (do we need to do pre-execution transactions?)
+    pub is_first_subblock: bool,
+    /// Whether this is the last subblock (do we need to do post-execution transactions?)
+    pub is_last_subblock: bool,
+}
+
+/// The input for the client to execute a block and fully verify the STF (state transition
+/// function).
+///
+/// Instead of passing in the entire state, we only pass in the state roots along with merkle proofs
+/// for the storage slots that were modified and accessed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AggregationInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
     /// The previous block headers starting from the most recent. There must be at least one header
     /// to provide the parent state root.
     pub ancestor_headers: Vec<Header>,
-    /// Simple DB
-    pub simple_db: SimpleDB,
-    /// Requests to account state and storage slots.
-    pub state_requests: HashMap<Address, Vec<U256>>,
+    /// Network state as of the parent block.
+    pub parent_state: EthereumState,
     /// Account bytecodes.
     pub bytecodes: Vec<Bytecode>,
+}
+
+impl AggregationInput {
+    pub fn parent_header(&self) -> &Header {
+        &self.ancestor_headers[0]
+    }
 }
 
 impl ClientExecutorInput {
@@ -85,6 +107,32 @@ impl WitnessInput for ClientExecutorInput {
     #[inline(always)]
     fn headers(&self) -> impl Iterator<Item = &Header> {
         once(&self.current_block.header).chain(self.ancestor_headers.iter())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct SubblockOutput {
+    pub state_diff: HashedPostState,
+    pub logs_bloom: Bloom,
+    pub receipts: Vec<Receipt>,
+    pub requests: Vec<Request>,
+}
+
+impl SubblockOutput {
+    pub fn extend(&mut self, other: Self) {
+        let cumulative_gas_used = match self.receipts.last() {
+            Some(receipt) => receipt.cumulative_gas_used,
+            None => 0,
+        };
+
+        self.state_diff.extend(other.state_diff);
+        self.logs_bloom.accrue_bloom(&other.logs_bloom);
+        let mut receipts = other.receipts;
+        receipts.iter_mut().for_each(|receipt| {
+            receipt.cumulative_gas_used += cumulative_gas_used;
+        });
+        self.receipts.extend(receipts);
+        self.requests.extend(other.requests);
     }
 }
 
@@ -148,8 +196,7 @@ impl<'a> DatabaseRef for TrieDB<'a> {
 
     /// Get account code by its hash.
     fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
-        unimplemented!()
-        // Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
+        Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
     }
 
     /// Get storage value of address at index.
@@ -188,7 +235,7 @@ impl DatabaseRef for SimpleDB {
     }
 
     /// Get account code by its hash.
-    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
+    fn code_by_hash_ref(&self, _hash: B256) -> Result<Bytecode, Self::Error> {
         unimplemented!()
         // Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
     }

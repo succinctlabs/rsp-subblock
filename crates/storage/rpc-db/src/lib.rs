@@ -14,7 +14,7 @@ use reth_primitives::{
 use reth_revm::db::BundleState;
 use reth_revm::DatabaseRef;
 use reth_storage_errors::{db::DatabaseError, provider::ProviderError};
-use revm_primitives::{keccak256, HashMap};
+use revm_primitives::HashMap;
 
 /// A database that fetches data from a [Provider] over a [Transport].
 #[derive(Debug, Clone)]
@@ -27,6 +27,8 @@ pub struct RpcDb<T, P> {
     pub subblock_accounts: RefCell<HashMap<Address, AccountInfo>>,
     /// The subblock's storage.
     pub subblock_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
+    /// The subblock's block hashes.
+    pub cache_block_hashes: RefCell<HashMap<u64, B256>>,
     /// The cached accounts.
     pub cache_accounts: RefCell<HashMap<Address, AccountInfo>>,
     /// The cached storage.
@@ -56,6 +58,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             block: block.into(),
             subblock_accounts: RefCell::new(HashMap::new()),
             subblock_storage: RefCell::new(HashMap::new()),
+            cache_block_hashes: RefCell::new(HashMap::new()),
             cache_accounts: RefCell::new(HashMap::new()),
             cache_storage: RefCell::new(HashMap::new()),
             oldest_ancestor: RefCell::new(block),
@@ -69,7 +72,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
         // Prioritize fetching from the cache.
         if self.cache_accounts.borrow().contains_key(&address) {
-            return Ok(self.cache_accounts.borrow().get(&address).unwrap().clone());
+            // Record the account info to the subblock state.
+            let account_info = self.cache_accounts.borrow().get(&address).unwrap().clone();
+            self.subblock_accounts.borrow_mut().insert(address, account_info.clone());
+
+            return Ok(account_info);
         }
 
         // Fetch the proof for the account.
@@ -114,6 +121,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         // Prioritize fetching from the cache.
         if let Some(storage_map) = self.cache_storage.borrow().get(&address) {
             if let Some(value) = storage_map.get(&index) {
+                // Record the storage value to the subblock state.
+                let mut storage_values = self.subblock_storage.borrow_mut();
+                let entry = storage_values.entry(address).or_default();
+                entry.insert(index, *value);
                 return Ok(*value);
             }
         }
@@ -151,6 +162,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
 
         let mut oldest_ancestor = self.oldest_ancestor.borrow_mut();
         *oldest_ancestor = number.min(*oldest_ancestor);
+
+        // Record the block hash to the state.
+        self.cache_block_hashes.borrow_mut().insert(number, hash);
 
         Ok(hash)
     }

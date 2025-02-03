@@ -1,7 +1,5 @@
 mod error;
 pub use error::Error as HostError;
-use reth_trie::HashedPostState;
-
 use std::{
     collections::{BTreeSet, HashMap},
     marker::PhantomData,
@@ -11,10 +9,10 @@ use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
-use revm::db::CacheDB;
-use revm_primitives::{keccak256, Address};
+use revm::db::{CacheDB, WrapDatabaseRef};
+use revm_primitives::Address;
 use rsp_client_executor::{
-    io::{ClientExecutorInput, SimpleClientExecutorInput, SimpleDB},
+    io::{AggregationInput, ClientExecutorInput, SimpleDB, SubblockInput},
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
 };
 use rsp_mpt::EthereumState;
@@ -30,7 +28,7 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 
-const TRANSACTIONS_PER_SUBBLOCK: u64 = 31;
+const TRANSACTIONS_PER_SUBBLOCK: u64 = 32;
 
 fn merge_state_requests(
     state_requests: &mut HashMap<Address, Vec<U256>>,
@@ -67,7 +65,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     pub async fn execute_subblock(
         &self,
         block_number: u64,
-    ) -> Result<Vec<SimpleClientExecutorInput>, HostError> {
+    ) -> Result<(Vec<SubblockInput>, AggregationInput), HostError> {
         self.execute_variant_subblocks::<EthereumVariant>(block_number).await
     }
 
@@ -260,7 +258,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     async fn execute_variant_subblocks<V>(
         &self,
         block_number: u64,
-    ) -> Result<Vec<SimpleClientExecutorInput>, HostError>
+    ) -> Result<(Vec<SubblockInput>, AggregationInput), HostError>
     where
         V: Variant,
     {
@@ -286,12 +284,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         // Setup the spec for the block executor.
         tracing::info!("setting up the spec for the block executor");
-        let spec = V::spec();
 
         // Setup the database for the block executor.
         tracing::info!("setting up the database for the block executor");
         let mut rpc_db = RpcDb::new(self.provider.clone(), block_number - 1);
-        // let cache_db = CacheDB::new(&rpc_db);
 
         // Execute the block and fetch all the necessary data along the way.
         tracing::info!(
@@ -309,7 +305,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut all_executor_outcomes = ExecutionOutcome::default();
 
         let mut all_state_requests = HashMap::new();
-        let mut all_post_states = HashedPostState::default();
 
         let mut num_transactions_completed: u64 = 0;
 
@@ -330,12 +325,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
 
-            if num_transactions_completed != 0 {
-                subblock_input.is_first_subblock = false;
-            }
-            if upper != current_block.body.len() as u64 {
-                subblock_input.is_last_subblock = false;
-            }
+            let is_first_subblock = num_transactions_completed == 0;
+            let is_last_subblock = upper == current_block.body.len() as u64;
+            subblock_input.is_first_subblock = is_first_subblock;
+            subblock_input.is_last_subblock = is_last_subblock;
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
 
             tracing::info!(
@@ -363,39 +356,65 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 vec![subblock_output.requests.into()],
             );
 
+            // Save the subblock's `HashedPostState` for debugging.
+            #[cfg(debug_assertions)]
+            let target_post_state = executor_outcome.hash_state_slow();
+
+            // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
             all_executor_outcomes.extend(executor_outcome);
-
-            // // Compress the output into a `HashedPostState`, and accumulate it into `all_post_states`.
-            // let post_state = executor_outcome.hash_state_slow();
-            // // post_state.clone().into_sorted().display();
-
-            // all_post_states.extend(post_state);
 
             // Merge the state requests from the subblock into `all_state_requests`.
             let subblock_state_requests = rpc_db.get_state_requests();
             merge_state_requests(&mut all_state_requests, &subblock_state_requests);
 
-            let mut client_input = SimpleClientExecutorInput {
+            let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                ancestor_headers: vec![],
                 simple_db: SimpleDB {
                     accounts: rpc_db.subblock_accounts.borrow().clone(),
                     storage: rpc_db.subblock_storage.borrow().clone(),
-                    block_hashes: HashMap::new(),
+                    block_hashes: rpc_db.cache_block_hashes.borrow().clone(),
                 },
-                state_requests: subblock_state_requests,
-                bytecodes: rpc_db.get_bytecodes(),
+                is_first_subblock,
+                is_last_subblock,
             };
-            // chop off the correct transactions for this subblock
-            client_input.current_block.body = client_input.current_block.body
+
+            // Slice the correct transactions for this subblock
+            subblock_input.current_block.body = subblock_input.current_block.body
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
+
+            #[cfg(debug_assertions)]
+            {
+                // Reconstruct the subblock input exactly as it would be in the client.
+                let debug_subblock_input = subblock_input.clone();
+                let mut input = debug_subblock_input
+                    .current_block
+                    .with_recovered_senders()
+                    .expect("failed to recover senders");
+                input.is_first_subblock = subblock_input.is_first_subblock;
+                input.is_last_subblock = subblock_input.is_last_subblock;
+
+                tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
+                tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
+                let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
+                let debug_subblock_output = V::execute(&input, executor_difficulty, wrap_ref)?;
+                let outcome = ExecutionOutcome::new(
+                    debug_subblock_output.state,
+                    Receipts::from(debug_subblock_output.receipts),
+                    current_block.header.number,
+                    vec![debug_subblock_output.requests.into()],
+                );
+                tracing::debug!(
+                    "Does the reconstructed subblock output match the target post state? {:?}",
+                    outcome.hash_state_slow() == target_post_state
+                );
+            }
 
             // Advance subblock
             num_transactions_completed = upper;
             rpc_db.advance_subblock();
 
-            result.push(client_input);
+            result.push(subblock_input);
         }
 
         // Commented this out for now, since gas used won't line up.
@@ -414,20 +433,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut after_storage_proofs = Vec::new();
 
         for (address, used_keys) in all_state_requests.iter() {
-            // let modified_keys = all_post_states
-            //     .storages
-            //     .get(&keccak256(address))
-            //     .map(|account| {
-            //         account
-            //             .storage
-            //             .keys()
-            //             .map(|key| *account.inverses.get(key).expect("inverse not found"))
-            //             .collect::<BTreeSet<_>>()
-            //     })
-            //     .unwrap_or_default()
-            //     .into_iter()
-            //     .collect::<Vec<_>>();
-
             let modified_keys = all_executor_outcomes
                 .state()
                 .state
@@ -438,11 +443,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 .unwrap_or_default()
                 .into_iter()
                 .collect::<Vec<_>>();
-
-            // if wrong_modified_keys != modified_keys {
-            //     println!("wrong modified keys: {:?}", wrong_modified_keys);
-            //     println!("modified keys: {:?}", modified_keys);
-            // }
 
             let keys = used_keys
                 .iter()
@@ -467,17 +467,18 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             after_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
         }
 
-        let mut state = EthereumState::from_transition_proofs(
+        let parent_state = EthereumState::from_transition_proofs(
             previous_block.state_root,
             &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
             &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
         )?;
 
-        // all_post_states.clone().into_sorted().display();
+        // Update the parent state with the cumulative state diffs from all subblocks.
+        let mut mutated_state = parent_state.clone();
+        mutated_state.update(&all_executor_outcomes.hash_state_slow());
 
-        state.update(&all_executor_outcomes.hash_state_slow());
-
-        let state_root = state.state_root();
+        // Verify the state root.
+        let state_root = mutated_state.state_root();
         if state_root != current_block.state_root {
             return Err(HostError::StateRootMismatch(state_root, current_block.state_root));
         }
@@ -528,10 +529,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             ancestor_headers.push(block.inner.header.try_into()?);
         }
 
-        for input in result.iter_mut() {
-            input.ancestor_headers = ancestor_headers.clone();
-        }
+        let aggregation_input = AggregationInput {
+            current_block: V::pre_process_block(&current_block),
+            ancestor_headers,
+            parent_state,
+            bytecodes: rpc_db.get_bytecodes(),
+        };
 
-        Ok(result)
+        Ok((result, aggregation_input))
     }
 }

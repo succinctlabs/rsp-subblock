@@ -2654,6 +2654,7 @@ dependencies = [
  "reth-storage-errors",
  "reth-trie-common",
  "revm",
+ "serde",
  "tracing",
 ]
 
@@ -2779,6 +2780,7 @@ dependencies = [
  "bincode",
  "log",
  "reth-primitives",
+ "reth-trie",
  "rsp-client-executor",
  "sp1-zkvm",
  "tracing",

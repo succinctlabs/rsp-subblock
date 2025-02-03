@@ -102,7 +102,7 @@ reth-evm-optimism = { path = "../reth/crates/optimism/evm", default-features = f
 reth-storage-errors = { path = "../reth/crates/storage/errors", default-features = false, features = [
     "std",
 ] }
-reth-trie = { path = "../reth/crates/trie/trie", default-features = false }
+reth-trie = { path = "../reth/crates/trie/trie", default-features = false, features = ["serde"] }
 reth-trie-common = { path = "../reth/crates/trie/common", default-features = false }
 reth-chainspec = { path = "../reth/crates/chainspec", default-features = false }
 reth-optimism-chainspec = { path = "../reth/crates/optimism/chainspec", default-features = false }
