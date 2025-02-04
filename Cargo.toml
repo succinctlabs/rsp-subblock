@@ -149,7 +149,7 @@ revm-precompile = { path = "../revm/crates/precompile", default-features = false
 
 # alloy
 # alloy-primitives = { version = "0.8.4", features = ["sha3-keccak"] }
-alloy-primitives = { path = "../alloy-core/crates/primitives", features = ["sha3-keccak", "rkyv"] }
+# alloy-primitives = { path = "../alloy-core/crates/primitives", features = ["sha3-keccak", "rkyv"] }
 alloy-provider = { version = "0.3", default-features = false, features = [
     "reqwest",
     "reqwest-rustls-tls",
@@ -166,9 +166,9 @@ alloy-transport-http = { version = "0.3", features = [
 alloy-eips = { version = "0.3", default-features = false }
 alloy-trie = "0.5.0"
 
-[patch.crates-io]
-alloy-primitives = { path = "../alloy-core/crates/primitives" }
-ruint = { path = "../uint" }
+# [patch.crates-io]
+# alloy-primitives = { path = "../alloy-core/crates/primitives" }
+# ruint = { path = "../uint" }
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"

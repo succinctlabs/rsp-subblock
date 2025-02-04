@@ -1,18 +1,54 @@
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
+use rkyv::with::{Identity, MapKV};
 use serde::{Deserialize, Serialize};
 
 /// Module containing MPT code adapted from `zeth`.
 mod mpt;
 pub use mpt::Error;
-use mpt::{proofs_to_tries, transition_proofs_to_tries, MptNode};
+use mpt::{proofs_to_tries, transition_proofs_to_tries, B256Def, MptNode};
 
 /// Ethereum state trie and account storage tries.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Default,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct EthereumState {
     pub state_trie: MptNode,
+    #[rkyv(with = MapKV<B256Def, Identity>)]
     pub storage_tries: HashMap<B256, MptNode>,
 }
+
+// #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+// #[rkyv(bytecheck(
+//     bounds(
+//         __C: rkyv::validation::ArchiveContext,
+//     )
+// ))]
+// #[rkyv(serialize_bounds(
+//     __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+//     __S::Error: rkyv::rancor::Source,
+// ))]
+// #[rkyv(deserialize_bounds(
+//     __D::Error: rkyv::rancor::Source
+// ))]
+// #[rkyv(remote = HashMap<B256, MptNode>)]
+// #[rkyv(archived = ArchivedMptNodeMap)]
+// pub struct MptNodeMap(pub HashMap<B256Def, MptNode>);
+
+// impl From<MptNodeMap> for HashMap<B256, MptNode> {
+//     fn from(value: MptNodeMap) -> Self {
+//         value.0.into_iter().map(|(k, v)| (B256::from(k), v)).collect()
+//     }
+// }
 
 impl EthereumState {
     /// Builds Ethereum state tries from relevant proofs before and after a state transition.

@@ -32,12 +32,7 @@ use reth_trie::AccountProof;
 use revm::primitives::HashMap;
 
 use rlp::{Decodable, DecoderError, Prototype, Rlp};
-// use serde::{Deserialize, Serialize};
-use rkyv::{
-    validation::archive,
-    with::{AsBox, Skip},
-};
-use rkyv::{Archive, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
 use reth_primitives::Address;
@@ -98,18 +93,42 @@ pub fn keccak(data: impl AsRef<[u8]>) -> [u8; 32] {
 /// return an error. Another distinction of this implementation is that branches cannot
 /// store values, aligning with the construction of MPTs in Ethereum.
 #[derive(
-    Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Archive, Serialize, Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
+#[rkyv(bytecheck(
+    bounds(
+        __C: rkyv::validation::ArchiveContext,
+        __C::Error: rkyv::rancor::Source,
+    )
+))]
+#[rkyv(serialize_bounds(
+    __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+    __S::Error: rkyv::rancor::Source,
+))]
+#[rkyv(deserialize_bounds(
+    __D::Error: rkyv::rancor::Source
+))]
 pub struct MptNode {
     /// The type and data of the node.
-    data: MptNodeData,
+    #[rkyv(omit_bounds)]
+    pub data: MptNodeData,
     /// Cache for a previously computed reference of this node. This is skipped during
     /// serialization.
-    // #[serde(skip)]
+    #[serde(skip)]
     #[rkyv(with = rkyv::with::Skip)]
     cached_reference: RefCell<Option<MptNodeReference>>,
 }
-
 /// Represents custom error types for the sparse Merkle Patricia Trie (MPT).
 ///
 /// These errors cover various scenarios that can occur during trie operations, such as
@@ -134,6 +153,15 @@ pub enum Error {
     LegacyRlp(#[from] DecoderError),
 }
 
+impl From<B256> for MptNode {
+    fn from(digest: B256) -> Self {
+        match digest {
+            EMPTY_ROOT | B256::ZERO => MptNode::default(),
+            _ => MptNodeData::Digest(digest).into(),
+        }
+    }
+}
+
 /// Represents the various types of data that can be stored within a node in the sparse
 /// Merkle Patricia Trie (MPT).
 ///
@@ -141,24 +169,74 @@ pub enum Error {
 /// structure. This enum provides a clear and type-safe way to represent the data
 /// associated with each node type.
 #[derive(
-    Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Archive, Serialize, Deserialize,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
+#[rkyv(bytecheck(
+    bounds(
+        __C: rkyv::validation::ArchiveContext,
+    )
+))]
+#[rkyv(serialize_bounds(
+    __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+    __S::Error: rkyv::rancor::Source,
+))]
+#[rkyv(deserialize_bounds(
+    __D::Error: rkyv::rancor::Source
+))]
 pub enum MptNodeData {
     /// Represents an empty trie node.
     #[default]
     Null,
     /// A node that can have up to 16 children. Each child is an optional boxed [MptNode].
-    // #[rkyv(with = AsBox)]
-    Branch([Option<Box<MptNode>>; 16]),
+    Branch(
+        // #[rkyv(with = rkyv::with::Map<rkyv::with::Map<Box<ArchivedMptNode>>>)]
+        #[rkyv(omit_bounds)] [Option<Box<MptNode>>; 16],
+    ),
     /// A leaf node that contains a key and a value, both represented as byte vectors.
     Leaf(Vec<u8>, Vec<u8>),
     /// A node that has exactly one child and is used to represent a shared prefix of
     /// several keys.
-    // #[rkyv(with = AsBox)]
-    Extension(Vec<u8>, Box<MptNode>),
+    Extension(
+        Vec<u8>,
+        // #[rkyv(with = Box<ArchivedMptNode>)]
+        #[rkyv(omit_bounds)] Box<MptNode>,
+    ),
     /// Represents a sub-trie by its hash, allowing for efficient storage of large
     /// sub-tries without storing their entire content.
-    Digest(B256),
+    Digest(#[rkyv(with = B256Def)] B256),
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[rkyv(remote = B256)]
+#[rkyv(archived = ArchivedB256)]
+pub struct B256Def(pub [u8; 32]);
+
+impl From<B256Def> for B256 {
+    fn from(value: B256Def) -> Self {
+        B256::new(value.0)
+    }
 }
 
 /// Represents the ways in which one node can reference another node inside the sparse
@@ -167,7 +245,7 @@ pub enum MptNodeData {
 /// Nodes in the MPT can reference other nodes either directly through their byte
 /// representation or indirectly through a hash of their encoding. This enum provides a
 /// clear and type-safe way to represent these references.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Archive, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum MptNodeReference {
     /// Represents a direct reference to another node using its byte encoding. Typically
     /// used for short encodings that are less than 32 bytes in length.
@@ -175,6 +253,20 @@ pub enum MptNodeReference {
     /// Represents an indirect reference to another node using the Keccak hash of its long
     /// encoding. Used for encodings that are not less than 32 bytes in length.
     Digest(B256),
+}
+
+impl MptNodeReference {
+    pub fn as_digest(&self) -> Self {
+        match self {
+            MptNodeReference::Digest(d) => MptNodeReference::Digest(*d),
+            MptNodeReference::Bytes(b) => MptNodeReference::Digest(keccak(b).into()),
+        }
+    }
+
+    pub fn digest(&self) -> B256 {
+        let MptNodeReference::Digest(d) = self.as_digest() else { unreachable!() };
+        d
+    }
 }
 
 /// Provides a conversion from [MptNodeData] to [MptNode].

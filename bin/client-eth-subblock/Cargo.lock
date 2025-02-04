@@ -2945,6 +2945,7 @@ dependencies = [
  "reth-trie",
  "revm",
  "revm-primitives",
+ "rkyv",
  "rsp-mpt",
  "rsp-primitives",
  "rsp-witness-db",
