@@ -32,7 +32,12 @@ use reth_trie::AccountProof;
 use revm::primitives::HashMap;
 
 use rlp::{Decodable, DecoderError, Prototype, Rlp};
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize};
+use rkyv::{
+    validation::archive,
+    with::{AsBox, Skip},
+};
+use rkyv::{Archive, Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
 use reth_primitives::Address;
@@ -92,13 +97,16 @@ pub fn keccak(data: impl AsRef<[u8]>) -> [u8; 32] {
 /// optimizing storage. However, operations targeting a truncated part will fail and
 /// return an error. Another distinction of this implementation is that branches cannot
 /// store values, aligning with the construction of MPTs in Ethereum.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Archive, Serialize, Deserialize,
+)]
 pub struct MptNode {
     /// The type and data of the node.
     data: MptNodeData,
     /// Cache for a previously computed reference of this node. This is skipped during
     /// serialization.
-    #[serde(skip)]
+    // #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
     cached_reference: RefCell<Option<MptNodeReference>>,
 }
 
@@ -132,17 +140,21 @@ pub enum Error {
 /// Each node in the trie can be of one of several types, each with its own specific data
 /// structure. This enum provides a clear and type-safe way to represent the data
 /// associated with each node type.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Archive, Serialize, Deserialize,
+)]
 pub enum MptNodeData {
     /// Represents an empty trie node.
     #[default]
     Null,
     /// A node that can have up to 16 children. Each child is an optional boxed [MptNode].
+    // #[rkyv(with = AsBox)]
     Branch([Option<Box<MptNode>>; 16]),
     /// A leaf node that contains a key and a value, both represented as byte vectors.
     Leaf(Vec<u8>, Vec<u8>),
     /// A node that has exactly one child and is used to represent a shared prefix of
     /// several keys.
+    // #[rkyv(with = AsBox)]
     Extension(Vec<u8>, Box<MptNode>),
     /// Represents a sub-trie by its hash, allowing for efficient storage of large
     /// sub-tries without storing their entire content.
@@ -155,7 +167,7 @@ pub enum MptNodeData {
 /// Nodes in the MPT can reference other nodes either directly through their byte
 /// representation or indirectly through a hash of their encoding. This enum provides a
 /// clear and type-safe way to represent these references.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Archive, Serialize, Deserialize)]
 pub enum MptNodeReference {
     /// Represents a direct reference to another node using its byte encoding. Typically
     /// used for short encodings that are less than 32 bytes in length.
