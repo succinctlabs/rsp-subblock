@@ -26,6 +26,7 @@ use reth_optimism_consensus::validate_block_post_execution as validate_block_pos
 use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, U256};
+use sha2::{Digest, Sha256};
 
 /// Chain ID for Ethereum Mainnet.
 pub const CHAIN_ID_ETH_MAINNET: u64 = 0x1;
@@ -257,12 +258,21 @@ impl ClientExecutor {
 
     pub fn execute_aggregation<V: Variant>(
         &self,
-        subblock_outputs: Vec<SubblockOutput>,
+        public_values: Vec<Vec<u8>>,
+        vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
     ) -> Result<Header, ClientError> {
         let mut aggregated_output = SubblockOutput::default();
         profile!("aggregate", {
-            for subblock_output in subblock_outputs {
+            for public_value in public_values {
+                let public_values_digest = Sha256::digest(&public_value);
+                sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
+                let mut public_value_slice = public_value.as_slice();
+                let _subblock_input =
+                    bincode::deserialize_from::<_, SubblockInput>(&mut public_value_slice).unwrap();
+                let subblock_output =
+                    bincode::deserialize_from::<_, SubblockOutput>(&mut public_value_slice)
+                        .unwrap();
                 aggregated_output.extend(subblock_output);
             }
         });

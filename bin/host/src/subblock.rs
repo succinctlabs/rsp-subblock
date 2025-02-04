@@ -4,7 +4,7 @@ use reth_primitives::B256;
 use rsp_client_executor::io::{AggregationInput, SubblockInput, SubblockOutput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -25,13 +25,16 @@ struct HostArgs {
     block_number: u64,
     #[clap(flatten)]
     provider: ProviderArgs,
-    /// Whether to generate a proof or just execute the block.
+    /// Whether to pre-execute the block.
     #[clap(long)]
-    prove: bool,
+    execute: bool,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
+    /// Optional path to the proof cache
+    #[clap(long)]
+    proof_cache_dir: Option<PathBuf>,
     /// The path to the CSV file containing the execution data.
     #[clap(long, default_value = "report.csv")]
     report_path: PathBuf,
@@ -107,52 +110,48 @@ async fn main() -> eyre::Result<()> {
     let client = ProverClient::from_env();
 
     // Setup the proving key and verification key.
-    let (pk, vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let mut subblock_outputs = Vec::new();
-    let mut subblock_inputs = Vec::new();
+    let mut public_values = Vec::new();
+    let mut agg_stdin = SP1Stdin::new();
     for input in client_input.subblock_inputs {
         // Execute the block inside the zkVM.
         let mut stdin = SP1Stdin::new();
         let buffer = bincode::serialize(&input).unwrap();
         stdin.write_vec(buffer);
 
-        // Only execute the program.
-        let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
-
-        println!("total instructions for subblock: {}", execution_report.total_instruction_count());
-
+        // if args.execute {
+        //     let (_, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
+        //     println!(
+        //         "total instructions for subblock: {}",
+        //         execution_report.total_instruction_count()
+        //     );
+        // }
+        // Generate the subblock proof.
+        let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
         // Read the block hash.
-        let subblock_input = public_values.read::<SubblockInput>();
-        subblock_inputs.push(subblock_input);
-        let subblock_output = public_values.read::<SubblockOutput>();
-        subblock_outputs.push(subblock_output);
+        public_values.push(proof.public_values);
+        let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
+        agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
     }
+    println!("subblock proofs generated");
 
-    // if args.prove {
-    //     println!("Starting proof generation.");
+    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    //     let start = std::time::Instant::now();
-    //     let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
-    //     let proof_bytes = bincode::serialize(&proof.proof).unwrap();
-    //     let elapsed = start.elapsed().as_secs_f32();
-    // }
-
-    let (pk, vk) = client.setup(include_elf!("rsp-client-eth-agg"));
-
-    let mut stdin = SP1Stdin::new();
-    let buffer = bincode::serialize(&subblock_outputs).unwrap();
-    stdin.write_vec(buffer);
+    let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
+    let buffer = bincode::serialize(&public_values).unwrap();
+    agg_stdin.write_vec(buffer);
+    agg_stdin.write(&subblock_vk.hash_u32());
     let buffer = bincode::serialize(&client_input.agg_input).unwrap();
-    stdin.write_vec(buffer);
+    agg_stdin.write_vec(buffer);
 
-    let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
-
-    let block_hash = public_values.read::<B256>();
-
+    if args.execute {
+        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
+        println!("total instructions for agg: {}", execution_report.total_instruction_count());
+    }
+    let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
+    let block_hash = proof.public_values.read::<B256>();
     println!("Block hash: {}", block_hash);
-
-    println!("total instructions for agg: {}", execution_report.total_instruction_count());
 
     Ok(())
 }

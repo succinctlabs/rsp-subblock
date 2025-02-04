@@ -28,7 +28,7 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 
-const TRANSACTIONS_PER_SUBBLOCK: u64 = 32;
+const TRANSACTIONS_PER_SUBBLOCK: u64 = 16;
 
 fn merge_state_requests(
     state_requests: &mut HashMap<Address, Vec<U256>>,
