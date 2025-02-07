@@ -120,17 +120,12 @@ async fn main() -> eyre::Result<()> {
         let buffer = bincode::serialize(&input).unwrap();
         stdin.write_vec(buffer);
 
-        // if args.execute {
-        //     let (_, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
-        //     println!(
-        //         "total instructions for subblock: {}",
-        //         execution_report.total_instruction_count()
-        //     );
-        // }
         // Generate the subblock proof.
         let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
-        // Read the block hash.
-        public_values.push(proof.public_values);
+
+        // Write the output to the public values.
+        public_values.push(proof.public_values.clone());
+
         let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
         agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
     }
@@ -139,9 +134,16 @@ async fn main() -> eyre::Result<()> {
     let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
-    let buffer = bincode::serialize(&public_values).unwrap();
-    agg_stdin.write_vec(buffer);
-    agg_stdin.write(&subblock_vk.hash_u32());
+    #[cfg(debug_assertions)]
+    {
+        let subblock_output: SubblockOutput =
+            rkyv::from_bytes::<SubblockOutput, rkyv::rancor::BoxedError>(&public_values[0][32..])
+                .unwrap();
+
+        println!("subblock output: {:?}", subblock_output);
+    }
+    agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
+    agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     let buffer = bincode::serialize(&client_input.agg_input).unwrap();
     agg_stdin.write_vec(buffer);
 

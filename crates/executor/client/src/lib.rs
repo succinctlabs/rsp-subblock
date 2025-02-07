@@ -26,6 +26,7 @@ use reth_optimism_consensus::validate_block_post_execution as validate_block_pos
 use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, U256};
+use rkyv::util::AlignedVec;
 use sha2::{Digest, Sha256};
 
 /// Chain ID for Ethereum Mainnet.
@@ -226,7 +227,7 @@ impl ClientExecutor {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
         })?;
 
-        let requests = executor_output.requests.clone();
+        // let requests = executor_output.requests.clone();
         let receipts = executor_output.receipts.clone();
 
         let mut logs_bloom = Bloom::default();
@@ -249,7 +250,7 @@ impl ClientExecutor {
                 state_diff: executor_outcome.hash_state_slow(),
                 logs_bloom,
                 receipts,
-                requests,
+                // requests,
             }
         });
 
@@ -267,12 +268,14 @@ impl ClientExecutor {
             for public_value in public_values {
                 let public_values_digest = Sha256::digest(&public_value);
                 sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
-                let mut public_value_slice = public_value.as_slice();
-                let _subblock_input =
-                    bincode::deserialize_from::<_, SubblockInput>(&mut public_value_slice).unwrap();
-                let subblock_output =
-                    bincode::deserialize_from::<_, SubblockOutput>(&mut public_value_slice)
-                        .unwrap();
+                let mut aligned_vec = AlignedVec::<16>::new();
+
+                // The first 32 bytes are the transaction hash.
+                aligned_vec.extend_from_slice(&public_value[32..]);
+
+                let subblock_output: SubblockOutput =
+                    rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
+                println!("deserialized a subblock output");
                 aggregated_output.extend(subblock_output);
             }
         });
@@ -288,7 +291,8 @@ impl ClientExecutor {
                 &aggregation_input.current_block.header,
                 &V::spec(),
                 &aggregated_output.receipts,
-                &aggregated_output.requests,
+                // &aggregated_output.requests,
+                &Vec::new(),
             )
             .expect("failed to validate subblock aggregation")
         });

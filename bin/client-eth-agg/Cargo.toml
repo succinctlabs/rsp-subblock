@@ -23,6 +23,9 @@ reth-trie = { path = "../../../reth/crates/trie/trie", default-features = false,
 # sp1
 sp1-zkvm = { version = "4.0.0", features = ["lib"] }
 
+# rkyv
+rkyv = "0.8.10"
+
 # Statically turns off logging
 log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off"] }
@@ -33,3 +36,6 @@ sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-
 ecdsa-core = { git = "https://github.com/sp1-patches/signatures", tag = "patch-0.16.9-sp1-4.0.0", package = "ecdsa" }
 bn = { git = "https://github.com/sp1-patches/bn", tag = "patch-0.6.0-sp1-4.0.0", package = "substrate-bn" }
 sha3 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha3-0.10.8-sp1-4.0.0" }
+
+alloy-primitives = { path = "../../../alloy-core/crates/primitives" }
+ruint = { path = "../../../uint" }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, iter::once};
 use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Request, B256, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, U256,
 };
 use reth_trie::{HashedPostState, TrieAccount};
 use revm_primitives::{keccak256, Bytecode};
@@ -58,9 +58,9 @@ pub struct SubblockInput {
     Deserialize,
     PartialEq,
     Eq,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    // rkyv::Archive,
+    // rkyv::Serialize,
+    // rkyv::Deserialize,
 )]
 pub struct AggregationInput {
     /// The current block (which will be executed inside the client).
@@ -120,12 +120,14 @@ impl WitnessInput for ClientExecutorInput {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct SubblockOutput {
     pub state_diff: HashedPostState,
     pub logs_bloom: Bloom,
     pub receipts: Vec<Receipt>,
-    pub requests: Vec<Request>,
+    // pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {
@@ -142,7 +144,7 @@ impl SubblockOutput {
             receipt.cumulative_gas_used += cumulative_gas_used;
         });
         self.receipts.extend(receipts);
-        self.requests.extend(other.requests);
+        // self.requests.extend(other.requests);
     }
 }
 
@@ -153,7 +155,17 @@ pub struct TrieDB<'a> {
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    // rkyv::Archive,
+    // rkyv::Serialize,
+    // rkyv::Deserialize,
+)]
 pub struct SimpleDB {
     /// The cached accounts.
     pub accounts: HashMap<Address, AccountInfo>,

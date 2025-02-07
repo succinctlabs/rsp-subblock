@@ -133,54 +133,54 @@ async fn main() -> eyre::Result<()> {
     let client = ProverClient::from_env();
 
     // Setup the proving key and verification key.
-    let (pk, vk) = client.setup(match variant {
-        ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-        ChainVariant::Optimism => include_elf!("rsp-client-op"),
-        ChainVariant::Linea => include_elf!("rsp-client-linea"),
-        ChainVariant::Sepolia => include_elf!("rsp-client-sepolia"),
-    });
+    // let (pk, vk) = client.setup(match variant {
+    //     // ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
+    //     // ChainVariant::Optimism => include_elf!("rsp-client-op"),
+    //     // ChainVariant::Linea => include_elf!("rsp-client-linea"),
+    //     // ChainVariant::Sepolia => include_elf!("rsp-client-sepolia"),
+    // });
 
-    // Execute the block inside the zkVM.
-    let mut stdin = SP1Stdin::new();
-    let buffer = bincode::serialize(&client_input).unwrap();
-    stdin.write_vec(buffer);
+    // // Execute the block inside the zkVM.
+    // let mut stdin = SP1Stdin::new();
+    // let buffer = bincode::serialize(&client_input).unwrap();
+    // stdin.write_vec(buffer);
 
-    // Only execute the program.
-    let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
+    // // Only execute the program.
+    // let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
-    // Read the block hash.
-    let block_hash = public_values.read::<B256>();
-    println!("success: block_hash={block_hash}");
+    // // Read the block hash.
+    // let block_hash = public_values.read::<B256>();
+    // println!("success: block_hash={block_hash}");
 
-    if eth_proofs_client.is_none() {
-        // Process the execute report, print it out, and save data to a CSV specified by
-        // report_path.
-        process_execution_report(
-            variant,
-            client_input,
-            &execution_report,
-            args.report_path.clone(),
-        )?;
-    }
+    // if eth_proofs_client.is_none() {
+    //     // Process the execute report, print it out, and save data to a CSV specified by
+    //     // report_path.
+    //     process_execution_report(
+    //         variant,
+    //         client_input,
+    //         &execution_report,
+    //         args.report_path.clone(),
+    //     )?;
+    // }
 
-    if args.prove {
-        println!("Starting proof generation.");
+    // if args.prove {
+    //     println!("Starting proof generation.");
 
-        if let Some(eth_proofs_client) = &eth_proofs_client {
-            eth_proofs_client.proving(args.block_number).await?;
-        }
+    //     if let Some(eth_proofs_client) = &eth_proofs_client {
+    //         eth_proofs_client.proving(args.block_number).await?;
+    //     }
 
-        let start = std::time::Instant::now();
-        let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
-        let proof_bytes = bincode::serialize(&proof.proof).unwrap();
-        let elapsed = start.elapsed().as_secs_f32();
+    //     let start = std::time::Instant::now();
+    //     let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
+    //     let proof_bytes = bincode::serialize(&proof.proof).unwrap();
+    //     let elapsed = start.elapsed().as_secs_f32();
 
-        if let Some(eth_proofs_client) = &eth_proofs_client {
-            eth_proofs_client
-                .proved(&proof_bytes, args.block_number, &execution_report, elapsed, &vk)
-                .await?;
-        }
-    }
+    //     if let Some(eth_proofs_client) = &eth_proofs_client {
+    //         eth_proofs_client
+    //             .proved(&proof_bytes, args.block_number, &execution_report, elapsed, &vk)
+    //             .await?;
+    //     }
+    // }
 
     Ok(())
 }

@@ -23,4 +23,6 @@ pub enum ClientError {
     BlockExecutionError(#[from] BlockExecutionError),
     #[error("Mpt Error: {}", .0)]
     MptError(#[from] MptError),
+    #[error("Deserialization Error")]
+    DeserializationError,
 }
