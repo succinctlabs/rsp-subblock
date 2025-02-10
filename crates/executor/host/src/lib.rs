@@ -12,7 +12,10 @@ use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::{CacheDB, WrapDatabaseRef};
 use revm_primitives::Address;
 use rsp_client_executor::{
-    io::{AggregationInput, ClientExecutorInput, SimpleDB, SubblockInput},
+    io::{
+        AggregationInput, AllSubblockOutputs, ClientExecutorInput, SimpleDB, SubblockInput,
+        SubblockOutput,
+    },
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
 };
 use rsp_mpt::EthereumState;
@@ -59,13 +62,14 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         }
     }
 
-    /// Executes the block with the given block number and returns the client input for each subblock.
+    /// Executes the block with the given block number and returns the client input for each
+    /// subblock.
     ///
     /// TODO: all variants
     pub async fn execute_subblock(
         &self,
         block_number: u64,
-    ) -> Result<(Vec<SubblockInput>, AggregationInput), HostError> {
+    ) -> Result<AllSubblockOutputs, HostError> {
         self.execute_variant_subblocks::<EthereumVariant>(block_number).await
     }
 
@@ -258,7 +262,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     async fn execute_variant_subblocks<V>(
         &self,
         block_number: u64,
-    ) -> Result<(Vec<SubblockInput>, AggregationInput), HostError>
+    ) -> Result<AllSubblockOutputs, HostError>
     where
         V: Variant,
     {
@@ -311,6 +315,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut result = Vec::new();
         let mut global_logs_bloom = Bloom::default();
 
+        let mut subblock_outputs = Vec::new();
+
         while current_block.body.len() as u64 > num_transactions_completed {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
@@ -348,6 +354,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             // Using the diffs from the bundle, update the RPC DB.
             rpc_db.update_state_diffs(&subblock_output.state);
 
+            let receipts = subblock_output.receipts.clone();
+
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(
                 subblock_output.state,
@@ -357,8 +365,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             );
 
             // Save the subblock's `HashedPostState` for debugging.
-            #[cfg(debug_assertions)]
             let target_post_state = executor_outcome.hash_state_slow();
+
+            let subblock_output =
+                SubblockOutput { receipts, logs_bloom, state_diff: target_post_state.clone() };
+            subblock_outputs.push(subblock_output);
 
             // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
             all_executor_outcomes.extend(executor_outcome);
@@ -536,6 +547,12 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             bytecodes: rpc_db.get_bytecodes(),
         };
 
-        Ok((result, aggregation_input))
+        let all_subblock_outputs = AllSubblockOutputs {
+            subblock_inputs: result,
+            subblock_outputs,
+            agg_input: aggregation_input,
+        };
+
+        Ok(all_subblock_outputs)
     }
 }

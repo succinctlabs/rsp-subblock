@@ -2,6 +2,7 @@
 sp1_zkvm::entrypoint!(main);
 
 use rsp_client_executor::{
+    hash_transactions,
     io::{SubblockInput, SubblockOutput},
     ClientExecutor, EthereumVariant,
 };
@@ -14,8 +15,7 @@ pub fn main() {
 
     // This is never deserialized so I don't care about using slow bincode.
     // Also it's pretty small.
-    let serialized_transactions = bincode::serialize(&input.current_block.body).unwrap();
-    let transaction_hash = Sha256::digest(&serialized_transactions);
+    let transaction_hash = hash_transactions(&input.current_block.body);
     sp1_zkvm::io::commit(&transaction_hash.as_slice());
 
     // Execute the block.

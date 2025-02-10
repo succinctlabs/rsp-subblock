@@ -1,6 +1,9 @@
 use alloy_provider::{network::AnyNetwork, Provider as _, ReqwestProvider};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use url::Url;
+
+use rsp_client_executor::io::{AggregationInput, SubblockInput};
 
 /// The arguments for configuring the chain data provider.
 #[derive(Debug, Clone, Parser)]

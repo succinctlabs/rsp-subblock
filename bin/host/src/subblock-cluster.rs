@@ -1,4 +1,6 @@
-//! Serial subblock execution. Use this one for debugging.
+//! Cluster subblock execution.
+//!
+//! Directly creates an aggregation task.
 
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
@@ -8,14 +10,27 @@ use rsp_client_executor::io::{
 };
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
+use sp1_sdk::{
+    include_elf, HashableKey, ProverClient, SP1Proof, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
+};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
+use sp1_worker::{
+    client::ClusterClient,
+    proto::{Artifact, TaskType},
+};
+
+use std::sync::Arc;
+
+mod execute;
+
 mod cli;
 use cli::ProviderArgs;
+
+mod eth_proofs;
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
@@ -38,6 +53,12 @@ struct HostArgs {
     /// The path to the CSV file containing the execution data.
     #[clap(long, default_value = "report.csv")]
     report_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheData {
+    pub subblock_inputs: Vec<SubblockInput>,
+    pub agg_input: AggregationInput,
 }
 
 #[tokio::main]
@@ -102,50 +123,70 @@ async fn main() -> eyre::Result<()> {
     let client = ProverClient::from_env();
 
     // Setup the proving key and verification key.
-    let (pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let mut public_values = Vec::new();
-    let mut agg_stdin = SP1Stdin::new();
-    for input in client_input.subblock_inputs {
-        // Execute the block inside the zkVM.
-        let mut stdin = SP1Stdin::new();
-        let buffer = bincode::serialize(&input).unwrap();
-        stdin.write_vec(buffer);
+    let (agg_pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-        // Generate the subblock proof.
-        let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
+    let agg_stdin = client_input.to_aggregation_stdin(&subblock_vk);
 
-        // Write the output to the public values.
-        public_values.push(proof.public_values.clone());
+    // println!("Block hash: {}", block_hash);
 
-        let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
-        agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
-    }
-    println!("subblock proofs generated");
+    Ok(())
+}
 
-    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
+async fn upload_artifact<T: Serialize + Send + Sync>(
+    client: &ClusterClient,
+    name: &str,
+    data: T,
+) -> eyre::Result<Artifact> {
+    let artifact = client
+        .create_artifact_blocking(name, 0)
+        .map_err(|e| eyre::eyre!("Failed to create artifact: {}", e))?;
+    artifact
+        .upload(&client.http, &data)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to upload artifact: {}", e))?;
 
-    let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
-    #[cfg(debug_assertions)]
-    {
-        let subblock_output: SubblockOutput =
-            rkyv::from_bytes::<SubblockOutput, rkyv::rancor::BoxedError>(&public_values[0][32..])
-                .unwrap();
+    Ok(artifact)
+}
 
-        println!("subblock output: {:?}", subblock_output);
-    }
-    agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
-    agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
-    let buffer = bincode::serialize(&client_input.agg_input).unwrap();
-    agg_stdin.write_vec(buffer);
+async fn schedule_task(
+    subblock_pk: SP1ProvingKey,
+    agg_pk: SP1ProvingKey,
+    inputs: AllSubblockOutputs,
+) -> eyre::Result<()> {
+    let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
+    let (agg_elf, agg_vk) = (agg_pk.elf, agg_pk.vk);
 
-    if args.execute {
-        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
-        println!("total instructions for agg: {}", execution_report.total_instruction_count());
-    }
-    let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
-    let block_hash = proof.public_values.read::<B256>();
-    println!("Block hash: {}", block_hash);
+    let aggregation_stdin = inputs.to_aggregation_stdin(&subblock_vk);
+
+    let cluster_client = Arc::new(ClusterClient::new());
+
+    // Create artifacts for the subblock stuff.
+    let subblock_elf_artifact: Artifact =
+        upload_artifact(&cluster_client, "subblock_elf", subblock_elf).await?;
+
+    let subblock_vk_artifact: Artifact =
+        upload_artifact(&cluster_client, "subblock_vk", subblock_vk).await?;
+
+    // Create artifacts for the aggregation stuff.
+    let agg_elf_artifact: Artifact = upload_artifact(&cluster_client, "agg_elf", agg_elf).await?;
+
+    let agg_vk_artifact: Artifact = upload_artifact(&cluster_client, "agg_vk", agg_vk).await?;
+
+    let agg_stdin_artifact: Artifact =
+        upload_artifact(&cluster_client, "agg_stdin", aggregation_stdin).await?;
+
+    let proof_id = "yuwen".to_string();
+
+    let task = cluster_client.create_task(
+        TaskType::Sp1AggregationTask,
+        vec![subblock_elf_artifact, subblock_vk_artifact],
+        vec![agg_elf_artifact, agg_vk_artifact, agg_stdin_artifact],
+        proof_id,
+        None,
+        None,
+    );
 
     Ok(())
 }

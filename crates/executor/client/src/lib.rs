@@ -29,6 +29,8 @@ use revm_primitives::{address, U256};
 use rkyv::util::AlignedVec;
 use sha2::{Digest, Sha256};
 
+pub use utils::hash_transactions;
+
 /// Chain ID for Ethereum Mainnet.
 pub const CHAIN_ID_ETH_MAINNET: u64 = 0x1;
 
