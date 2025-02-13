@@ -277,7 +277,6 @@ impl ClientExecutor {
 
                 let subblock_output: SubblockOutput =
                     rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
-                println!("deserialized a subblock output");
                 aggregated_output.extend(subblock_output);
             }
         });

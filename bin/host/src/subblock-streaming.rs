@@ -293,8 +293,6 @@ pub fn to_aggregation_stdin(
 
         current_public_values.write_all(&serialized).unwrap();
 
-        println!("yuwen_public_values: {:?}", current_public_values);
-
         public_values.push(current_public_values);
     }
     stdin.write::<Vec<Vec<u8>>>(&public_values);

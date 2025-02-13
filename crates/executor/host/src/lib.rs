@@ -34,7 +34,7 @@ lazy_static::lazy_static! {
     /// Number of transactions per subblock.
     pub static ref TRANSACTIONS_PER_SUBBLOCK: u64 = std::env::var("TRANSACTIONS_PER_SUBBLOCK")
         .map(|s| s.parse().unwrap())
-        .unwrap_or(48);
+        .unwrap_or(32);
 }
 
 fn merge_state_requests(
