@@ -1,4 +1,4 @@
-use reth_primitives::{Transaction, TransactionSigned};
+use reth_primitives::TransactionSigned;
 use sha2::{Digest, Sha256};
 
 macro_rules! profile {

@@ -30,8 +30,12 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     /// A phantom type to make the struct generic over the transport.
     pub phantom: PhantomData<T>,
 }
-
-const TRANSACTIONS_PER_SUBBLOCK: u64 = 16;
+lazy_static::lazy_static! {
+    /// Number of transactions per subblock.
+    pub static ref TRANSACTIONS_PER_SUBBLOCK: u64 = std::env::var("TRANSACTIONS_PER_SUBBLOCK")
+        .map(|s| s.parse().unwrap())
+        .unwrap_or(48);
+}
 
 fn merge_state_requests(
     state_requests: &mut HashMap<Address, Vec<U256>>,
@@ -322,7 +326,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             let cache_db = CacheDB::new(&rpc_db);
             let upper = std::cmp::min(
                 current_block.body.len() as u64,
-                num_transactions_completed + TRANSACTIONS_PER_SUBBLOCK,
+                num_transactions_completed + *TRANSACTIONS_PER_SUBBLOCK,
             );
             let mut subblock_input = executor_block_input.clone();
             subblock_input.body =
@@ -408,14 +412,27 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
                 tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
                 let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
-                let debug_subblock_output = V::execute(&input, executor_difficulty, wrap_ref)?;
+                let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
+                let receipts = debug_execution_output.receipts.clone();
                 let outcome = ExecutionOutcome::new(
-                    debug_subblock_output.state,
-                    Receipts::from(debug_subblock_output.receipts),
+                    debug_execution_output.state,
+                    Receipts::from(debug_execution_output.receipts),
                     current_block.header.number,
-                    vec![debug_subblock_output.requests.into()],
+                    vec![debug_execution_output.requests.into()],
                 );
-                tracing::debug!(
+
+                let mut logs_bloom = Bloom::default();
+                receipts.iter().for_each(|r| {
+                    logs_bloom.accrue_bloom(&r.bloom_slow());
+                });
+                let debug_subblock_output =
+                    SubblockOutput { receipts, logs_bloom, state_diff: outcome.hash_state_slow() };
+
+                tracing::info!(
+                    "Is the debug subblock output equal to the constructed subblock output? {:?}",
+                    debug_subblock_output == *subblock_outputs.last().unwrap()
+                );
+                tracing::info!(
                     "Does the reconstructed subblock output match the target post state? {:?}",
                     outcome.hash_state_slow() == target_post_state
                 );

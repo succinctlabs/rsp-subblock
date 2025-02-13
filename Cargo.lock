@@ -1861,8 +1861,10 @@ checksum = "7e36cc9d416881d2e24f9a963be5fb1cd90966419ac844274161d10488b3e825"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-targets 0.52.6",
 ]
 
@@ -6404,6 +6406,7 @@ dependencies = [
  "alloy-provider",
  "base64 0.22.1",
  "bincode",
+ "chrono",
  "clap",
  "csv",
  "dotenv",
@@ -6455,7 +6458,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sp1-sdk",
  "sp1-zkvm",
  "thiserror 1.0.69",
  "tokio",
@@ -6475,6 +6477,7 @@ dependencies = [
  "dotenv",
  "futures",
  "itertools 0.13.0",
+ "lazy_static",
  "reth-chainspec",
  "reth-codecs",
  "reth-errors",
@@ -7702,6 +7705,7 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Faggregator#982597712739ce4ee55c25bbe2b94d2ac29f5169"
 dependencies = [
  "anyhow",
  "async-channel",

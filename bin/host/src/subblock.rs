@@ -115,6 +115,8 @@ async fn main() -> eyre::Result<()> {
         // Generate the subblock proof.
         let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
 
+        println!("yuwen_public_values: {:?}", proof.public_values);
+
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 

@@ -11,11 +11,8 @@ use rsp_mpt::EthereumState;
 //use rsp_witness_db::WitnessDb;
 use revm::DatabaseRef;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 
-use sp1_sdk::{HashableKey, SP1Stdin, SP1VerifyingKey};
-
-use crate::{error::ClientError, hash_transactions};
+use crate::error::ClientError;
 
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
@@ -55,33 +52,6 @@ pub struct AllSubblockOutputs {
     pub subblock_inputs: Vec<SubblockInput>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
-}
-
-impl AllSubblockOutputs {
-    /// Constructs the aggregation stdin, sans the subblock proofs.
-    pub fn to_aggregation_stdin(&self, subblock_vk: &SP1VerifyingKey) -> SP1Stdin {
-        let mut stdin = SP1Stdin::new();
-
-        assert_eq!(self.subblock_inputs.len(), self.subblock_outputs.len());
-        let mut public_values = Vec::new();
-        for i in 0..self.subblock_inputs.len() {
-            let mut current_public_values = Vec::new();
-            let transaction_hash = hash_transactions(&self.subblock_inputs[i].current_block.body);
-            bincode::serialize_into(&mut current_public_values, &transaction_hash).unwrap();
-
-            let serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&self.subblock_outputs[i])
-                .expect("failed to serialize state diff")
-                .to_vec();
-            current_public_values.write_all(&serialized).unwrap();
-
-            public_values.push(current_public_values);
-        }
-        stdin.write::<Vec<Vec<u8>>>(&public_values);
-        stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
-        let buffer = bincode::serialize(&self.agg_input).unwrap();
-        stdin.write_vec(buffer);
-        stdin
-    }
 }
 
 /// The input for the client to execute a block and fully verify the STF (state transition
@@ -159,7 +129,16 @@ impl WitnessInput for ClientExecutorInput {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Default,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    PartialEq,
+    Eq,
 )]
 pub struct SubblockOutput {
     pub state_diff: HashedPostState,

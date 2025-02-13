@@ -31,10 +31,10 @@ eyre = "0.6.12"
 reqwest = "0.12.9"
 base64 = "0.22.1"
 hex = "0.4.3"
-
+chrono = "0.4.39"
 rkyv = "0.8.10"
 
-sp1-worker = { path = "../../../sp1-prover-service/cluster/worker", optional = true }
+sp1-worker = { git = "https://github.com/succinctlabs/sp1-prover-service.git", branch = "yuwen/aggregator"}
 
 [build-dependencies]
 sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "dev" }
@@ -43,11 +43,10 @@ sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "dev
 name = "subblock"
 path = "src/subblock.rs"
 
-[[bin]] 
-name = "subblock-cluster"
-path = "src/subblock-cluster.rs"
+[[bin]]
+name = "subblock-streaming"
+path = "src/subblock-streaming.rs"
 
 [features]
 default = []
 cuda = ["sp1-sdk/cuda"]
-cluster = ["dep:sp1-worker"]
