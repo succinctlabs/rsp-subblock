@@ -388,6 +388,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 parent_state_bytes: Vec::new(),
                 state_diff_bytes: Vec::new(),
                 block_hashes: HashMap::new(),
+                bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
                 is_last_subblock,
             };
@@ -568,13 +569,17 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let parent_state_bytes =
             rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
+        let mut cumulative_state_diff = HashedPostState::default();
+
         for i in 0..result.len() {
             let subblock_input = &mut result[i];
             let state_diff_bytes =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_outputs[i].state_diff).unwrap();
+                rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
             subblock_input.state_diff_bytes = state_diff_bytes.to_vec();
             subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
+
+            cumulative_state_diff.extend_ref(&subblock_outputs[i].state_diff);
         }
 
         let all_subblock_outputs = SubblockHostOutput {

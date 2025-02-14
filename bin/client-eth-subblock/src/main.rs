@@ -1,15 +1,8 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use std::hash::Hash;
+use rsp_client_executor::{hash_transactions, io::SubblockInput, ClientExecutor, EthereumVariant};
 
-use rsp_client_executor::{
-    hash_transactions,
-    io::{SubblockInput, SubblockOutput},
-    ClientExecutor, EthereumVariant,
-};
-
-use sha2::{Digest, Sha256};
 pub fn main() {
     // Read the input.
     let input = sp1_zkvm::io::read_vec();

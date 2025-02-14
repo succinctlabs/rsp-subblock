@@ -213,7 +213,7 @@ impl ClientExecutor {
         V: Variant,
     {
         // Initialize the unauthenticated database.
-        println!("cycle-tracker-start initialize buffered trie db");
+        println!("cycle-tracker-start: initialize buffered trie db");
         let mut aligned_vec = AlignedVec::<16>::new();
         aligned_vec.extend_from_slice(&input.parent_state_bytes);
         let parent_state =
@@ -223,10 +223,11 @@ impl ClientExecutor {
         let state_diff =
             rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
         // TODO: verify the parent block hashes????
-        let trie_db = TrieDB::new(&parent_state, input.block_hashes, HashMap::new());
+        let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+        let trie_db = TrieDB::new(&parent_state, input.block_hashes, bytecode_by_hash);
         let buffered_trie_db = BufferedTrieDB::new(trie_db, state_diff);
         let wrap_ref = WrapDatabaseRef(buffered_trie_db);
-        println!("cycle-tracker-end initialize buffered trie db");
+        println!("cycle-tracker-end: initialize buffered trie db");
 
         // Execute the block.
         let mut executor_block_input = profile!("recover senders", {

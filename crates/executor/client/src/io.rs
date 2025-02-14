@@ -45,6 +45,9 @@ pub struct SubblockInput {
     /// The blockhashes used by the subblock
     /// This can be shrunk, but it's not a big deal
     pub block_hashes: HashMap<u64, B256>,
+    /// The bytecodes used by the subblock
+    /// TODO: shrink this
+    pub bytecodes: Vec<Bytecode>,
     /// Whether this is the first subblock (do we need to do pre-execution transactions?)
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
@@ -277,26 +280,18 @@ impl<'a> DatabaseRef for BufferedTrieDB<'a> {
 
     /// Get basic account information.
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        println!("basic_ref @ {:?}", address);
         let hashed_address = keccak256(address);
 
         match self.state_diff.accounts.get(&hashed_address) {
-            Some(account) => Ok(account.map(|account| AccountInfo {
-                balance: account.balance,
-                nonce: account.nonce,
-                code_hash: account.bytecode_hash.unwrap_or({
-                    println!("NO BYTECODE HASH");
-                    KECCAK_EMPTY
-                }),
-                code: None,
-            })),
+            Some(account) => Ok(account.map(Into::into)),
             None => self.inner.get_account_from_hashed_address(hashed_address.as_slice()),
         }
     }
 
     /// Get account code by its hash.
-    fn code_by_hash_ref(&self, _hash: B256) -> Result<Bytecode, Self::Error> {
-        unimplemented!()
-        // Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
+    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
+        Ok(self.inner.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
     }
 
     /// Get storage value of address at index.
