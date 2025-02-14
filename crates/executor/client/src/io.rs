@@ -35,11 +35,11 @@ pub struct ClientExecutorInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SubblockInput {
+pub struct SubblockInput<'a> {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
     /// Simple DB
-    pub simple_db: SimpleDB,
+    pub simple_db: BufferedTrieDB<'a>,
     /// Whether this is the first subblock (do we need to do pre-execution transactions?)
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
@@ -165,8 +165,10 @@ impl SubblockOutput {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+// #[serde(bound(serialize = "", deserialize = ""))]
 pub struct TrieDB<'a> {
+    // #[serde(borrow)]
     inner: &'a EthereumState,
     block_hashes: HashMap<u64, B256>,
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
@@ -175,30 +177,24 @@ pub struct TrieDB<'a> {
 #[derive(
     Debug,
     Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
+    // Serialize,
+    // Deserialize,
+    // PartialEq,
+    // Eq,
     /* rkyv::Archive,
      * rkyv::Serialize,
      * rkyv::Deserialize, */
 )]
-pub struct SimpleDB {
-    /// The cached accounts.
-    pub accounts: HashMap<Address, AccountInfo>,
-    /// The cached storage.
-    pub storage: HashMap<Address, HashMap<U256, U256>>,
-    /// The cached block hashes.
-    pub block_hashes: HashMap<u64, B256>,
+pub struct BufferedTrieDB<'a> {
+    /// The underlying TrieDB.
+    pub inner: TrieDB<'a>,
+    /// The cached HashedPostState.
+    pub state_diff: HashedPostState,
 }
 
-impl SimpleDB {
-    pub fn new(
-        accounts: HashMap<Address, AccountInfo>,
-        storage: HashMap<Address, HashMap<U256, U256>>,
-        block_hashes: HashMap<u64, B256>,
-    ) -> Self {
-        Self { accounts, storage, block_hashes }
+impl<'a> BufferedTrieDB<'a> {
+    pub fn new(inner: TrieDB<'a>, state_diff: HashedPostState) -> Self {
+        Self { inner, state_diff }
     }
 }
 
@@ -264,13 +260,13 @@ impl<'a> DatabaseRef for TrieDB<'a> {
     }
 }
 
-impl DatabaseRef for SimpleDB {
+impl<'a> DatabaseRef for BufferedTrieDB<'a> {
     /// The database error type.
     type Error = ProviderError;
 
     /// Get basic account information.
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        Ok(self.accounts.get(&address).cloned())
+        Ok(self.inner.basic_ref(address)?)
     }
 
     /// Get account code by its hash.
@@ -281,15 +277,12 @@ impl DatabaseRef for SimpleDB {
 
     /// Get storage value of address at index.
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        Ok(*self.storage.get(&address).unwrap().get(&index).unwrap())
+        Ok(self.inner.storage_ref(address, index)?)
     }
 
     /// Get block hash by block number.
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        Ok(*self
-            .block_hashes
-            .get(&number)
-            .expect("A block hash must be provided for each block number"))
+        Ok(self.inner.block_hash_ref(number)?)
     }
 }
 

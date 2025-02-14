@@ -13,7 +13,7 @@ use revm::db::{CacheDB, WrapDatabaseRef};
 use revm_primitives::Address;
 use rsp_client_executor::{
     io::{
-        AggregationInput, AllSubblockOutputs, ClientExecutorInput, SimpleDB, SubblockInput,
+        AggregationInput, AllSubblockOutputs, BufferedTrieDB, ClientExecutorInput, SubblockInput,
         SubblockOutput,
     },
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
@@ -384,10 +384,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                simple_db: SimpleDB {
-                    accounts: rpc_db.subblock_accounts.borrow().clone(),
-                    storage: rpc_db.subblock_storage.borrow().clone(),
-                    block_hashes: rpc_db.cache_block_hashes.borrow().clone(),
+                simple_db: BufferedTrieDB {
+                    inner: EthereumState::default(),
+                    state_diff: target_post_state,
                 },
                 is_first_subblock,
                 is_last_subblock,

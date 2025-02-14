@@ -27,29 +27,6 @@ pub struct EthereumState {
     pub storage_tries: HashMap<B256, MptNode>,
 }
 
-// #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-// #[rkyv(bytecheck(
-//     bounds(
-//         __C: rkyv::validation::ArchiveContext,
-//     )
-// ))]
-// #[rkyv(serialize_bounds(
-//     __S: rkyv::ser::Writer + rkyv::ser::Allocator,
-//     __S::Error: rkyv::rancor::Source,
-// ))]
-// #[rkyv(deserialize_bounds(
-//     __D::Error: rkyv::rancor::Source
-// ))]
-// #[rkyv(remote = HashMap<B256, MptNode>)]
-// #[rkyv(archived = ArchivedMptNodeMap)]
-// pub struct MptNodeMap(pub HashMap<B256Def, MptNode>);
-
-// impl From<MptNodeMap> for HashMap<B256, MptNode> {
-//     fn from(value: MptNodeMap) -> Self {
-//         value.0.into_iter().map(|(k, v)| (B256::from(k), v)).collect()
-//     }
-// }
-
 impl EthereumState {
     /// Builds Ethereum state tries from relevant proofs before and after a state transition.
     pub fn from_transition_proofs(
