@@ -7,7 +7,7 @@ use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::{
     hash_transactions,
-    io::{AggregationInput, AllSubblockOutputs, SubblockInput, SubblockOutput},
+    io::{AggregationInput, SubblockHostOutput, SubblockInput, SubblockOutput},
 };
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
@@ -159,7 +159,7 @@ async fn upload_artifact<T: Serialize + Send + Sync>(
 async fn schedule_task(
     subblock_pk: SP1ProvingKey,
     agg_pk: SP1ProvingKey,
-    inputs: AllSubblockOutputs,
+    inputs: SubblockHostOutput,
 ) -> eyre::Result<SP1ProofWithPublicValues> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
@@ -254,7 +254,7 @@ async fn schedule_task(
 
 /// Constructs the aggregation stdin, sans the subblock proofs.
 pub fn to_aggregation_stdin(
-    all_subblock_outputs: AllSubblockOutputs,
+    all_subblock_outputs: SubblockHostOutput,
     subblock_vk: &SP1VerifyingKey,
 ) -> SP1Stdin {
     let mut stdin = SP1Stdin::new();
@@ -306,14 +306,14 @@ fn try_load_input_from_cache(
     cache_dir: Option<&PathBuf>,
     chain_id: u64,
     block_number: u64,
-) -> eyre::Result<Option<AllSubblockOutputs>> {
+) -> eyre::Result<Option<SubblockHostOutput>> {
     Ok(if let Some(cache_dir) = cache_dir {
         let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
             // TODO: prune the cache if invalid instead
             let mut cache_file = std::fs::File::open(cache_path)?;
-            let cache_data: AllSubblockOutputs = bincode::deserialize_from(&mut cache_file)?;
+            let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
 
             Some(cache_data)
         } else {

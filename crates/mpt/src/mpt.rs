@@ -231,6 +231,7 @@ pub enum MptNodeData {
 )]
 #[rkyv(remote = B256)]
 #[rkyv(archived = ArchivedB256)]
+#[rkyv(attr(derive(Eq, PartialEq, Hash)))]
 pub struct B256Def(pub [u8; 32]);
 
 impl From<B256Def> for B256 {

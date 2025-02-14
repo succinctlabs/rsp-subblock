@@ -1,5 +1,6 @@
 mod error;
 pub use error::Error as HostError;
+use reth_trie::HashedPostState;
 use std::{
     collections::{BTreeSet, HashMap},
     marker::PhantomData,
@@ -13,7 +14,7 @@ use revm::db::{CacheDB, WrapDatabaseRef};
 use revm_primitives::Address;
 use rsp_client_executor::{
     io::{
-        AggregationInput, AllSubblockOutputs, BufferedTrieDB, ClientExecutorInput, SubblockInput,
+        AggregationInput, BufferedTrieDB, ClientExecutorInput, SubblockHostOutput, SubblockInput,
         SubblockOutput,
     },
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
@@ -73,7 +74,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     pub async fn execute_subblock(
         &self,
         block_number: u64,
-    ) -> Result<AllSubblockOutputs, HostError> {
+    ) -> Result<SubblockHostOutput, HostError> {
         self.execute_variant_subblocks::<EthereumVariant>(block_number).await
     }
 
@@ -266,7 +267,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
     async fn execute_variant_subblocks<V>(
         &self,
         block_number: u64,
-    ) -> Result<AllSubblockOutputs, HostError>
+    ) -> Result<SubblockHostOutput, HostError>
     where
         V: Variant,
     {
@@ -384,10 +385,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                simple_db: BufferedTrieDB {
-                    inner: EthereumState::default(),
-                    state_diff: target_post_state,
-                },
+                parent_state_bytes: Vec::new(),
+                state_diff_bytes: Vec::new(),
+                block_hashes: HashMap::new(),
                 is_first_subblock,
                 is_last_subblock,
             };
@@ -399,42 +399,42 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             #[cfg(debug_assertions)]
             {
-                // Reconstruct the subblock input exactly as it would be in the client.
-                let debug_subblock_input = subblock_input.clone();
-                let mut input = debug_subblock_input
-                    .current_block
-                    .with_recovered_senders()
-                    .expect("failed to recover senders");
-                input.is_first_subblock = subblock_input.is_first_subblock;
-                input.is_last_subblock = subblock_input.is_last_subblock;
+                // // Reconstruct the subblock input exactly as it would be in the client.
+                // let debug_subblock_input = subblock_input.clone();
+                // let mut input = debug_subblock_input
+                //     .current_block
+                //     .with_recovered_senders()
+                //     .expect("failed to recover senders");
+                // input.is_first_subblock = subblock_input.is_first_subblock;
+                // input.is_last_subblock = subblock_input.is_last_subblock;
 
-                tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
-                tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
-                let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
-                let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
-                let receipts = debug_execution_output.receipts.clone();
-                let outcome = ExecutionOutcome::new(
-                    debug_execution_output.state,
-                    Receipts::from(debug_execution_output.receipts),
-                    current_block.header.number,
-                    vec![debug_execution_output.requests.into()],
-                );
+                // tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
+                // tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
+                // let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
+                // let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
+                // let receipts = debug_execution_output.receipts.clone();
+                // let outcome = ExecutionOutcome::new(
+                //     debug_execution_output.state,
+                //     Receipts::from(debug_execution_output.receipts),
+                //     current_block.header.number,
+                //     vec![debug_execution_output.requests.into()],
+                // );
 
-                let mut logs_bloom = Bloom::default();
-                receipts.iter().for_each(|r| {
-                    logs_bloom.accrue_bloom(&r.bloom_slow());
-                });
-                let debug_subblock_output =
-                    SubblockOutput { receipts, logs_bloom, state_diff: outcome.hash_state_slow() };
+                // let mut logs_bloom = Bloom::default();
+                // receipts.iter().for_each(|r| {
+                //     logs_bloom.accrue_bloom(&r.bloom_slow());
+                // });
+                // let debug_subblock_output =
+                //     SubblockOutput { receipts, logs_bloom, state_diff: outcome.hash_state_slow() };
 
-                tracing::info!(
-                    "Is the debug subblock output equal to the constructed subblock output? {:?}",
-                    debug_subblock_output == *subblock_outputs.last().unwrap()
-                );
-                tracing::info!(
-                    "Does the reconstructed subblock output match the target post state? {:?}",
-                    outcome.hash_state_slow() == target_post_state
-                );
+                // tracing::info!(
+                //     "Is the debug subblock output equal to the constructed subblock output? {:?}",
+                //     debug_subblock_output == *subblock_outputs.last().unwrap()
+                // );
+                // tracing::info!(
+                //     "Does the reconstructed subblock output match the target post state? {:?}",
+                //     outcome.hash_state_slow() == target_post_state
+                // );
             }
 
             // Advance subblock
@@ -545,6 +545,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         // Fetch the parent headers needed to constrain the BLOCKHASH opcode.
         let oldest_ancestor = *rpc_db.oldest_ancestor.borrow();
         let mut ancestor_headers = vec![];
+        let mut block_hashes = HashMap::new();
         tracing::info!("fetching {} ancestor headers", block_number - oldest_ancestor);
         for height in (oldest_ancestor..=(block_number - 1)).rev() {
             let block = self
@@ -553,17 +554,30 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 .await?
                 .ok_or(HostError::ExpectedBlock(height))?;
 
+            block_hashes.insert(height, block.inner.header.hash);
             ancestor_headers.push(block.inner.header.try_into()?);
         }
 
         let aggregation_input = AggregationInput {
             current_block: V::pre_process_block(&current_block),
             ancestor_headers,
-            parent_state,
+            parent_state: parent_state.clone(),
             bytecodes: rpc_db.get_bytecodes(),
         };
 
-        let all_subblock_outputs = AllSubblockOutputs {
+        let parent_state_bytes =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
+
+        for i in 0..result.len() {
+            let subblock_input = &mut result[i];
+            let state_diff_bytes =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_outputs[i].state_diff).unwrap();
+            subblock_input.state_diff_bytes = state_diff_bytes.to_vec();
+            subblock_input.parent_state_bytes = parent_state_bytes.clone();
+            subblock_input.block_hashes = block_hashes.clone();
+        }
+
+        let all_subblock_outputs = SubblockHostOutput {
             subblock_inputs: result,
             subblock_outputs,
             agg_input: aggregation_input,

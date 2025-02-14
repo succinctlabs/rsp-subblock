@@ -3,11 +3,8 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
 use reth_primitives::B256;
-use rsp_client_executor::io::{
-    AggregationInput, AllSubblockOutputs, SubblockInput, SubblockOutput,
-};
+use rsp_client_executor::io::{SubblockHostOutput, SubblockOutput};
 use rsp_host_executor::HostExecutor;
-use serde::{Deserialize, Serialize};
 use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
 use std::path::PathBuf;
 use tracing_subscriber::{
@@ -154,14 +151,14 @@ fn try_load_input_from_cache(
     cache_dir: Option<&PathBuf>,
     chain_id: u64,
     block_number: u64,
-) -> eyre::Result<Option<AllSubblockOutputs>> {
+) -> eyre::Result<Option<SubblockHostOutput>> {
     Ok(if let Some(cache_dir) = cache_dir {
         let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
             // TODO: prune the cache if invalid instead
             let mut cache_file = std::fs::File::open(cache_path)?;
-            let cache_data: AllSubblockOutputs = bincode::deserialize_from(&mut cache_file)?;
+            let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
 
             Some(cache_data)
         } else {

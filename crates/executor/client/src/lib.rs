@@ -5,11 +5,13 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{borrow::BorrowMut, fmt::Display};
+use std::{borrow::BorrowMut, collections::HashMap, fmt::Display};
 
 use custom::CustomEvmConfig;
 use error::ClientError;
-use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput};
+use io::{
+    AggregationInput, BufferedTrieDB, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB,
+};
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
 use reth_ethereum_consensus::{
@@ -24,9 +26,11 @@ use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
 use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
 use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
+use reth_trie::HashedPostState;
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, U256};
 use rkyv::util::AlignedVec;
+use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 
 pub use utils::hash_transactions;
@@ -209,10 +213,20 @@ impl ClientExecutor {
         V: Variant,
     {
         // Initialize the unauthenticated database.
-        let wrap_ref = profile!("initialize simple db", {
-            let simple_db = input.simple_db;
-            WrapDatabaseRef(simple_db)
-        });
+        println!("cycle-tracker-start initialize buffered trie db");
+        let mut aligned_vec = AlignedVec::<16>::new();
+        aligned_vec.extend_from_slice(&input.parent_state_bytes);
+        let parent_state =
+            rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap();
+        aligned_vec.clear();
+        aligned_vec.extend_from_slice(&input.state_diff_bytes);
+        let state_diff =
+            rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
+        // TODO: verify the parent block hashes????
+        let trie_db = TrieDB::new(&parent_state, input.block_hashes, HashMap::new());
+        let buffered_trie_db = BufferedTrieDB::new(trie_db, state_diff);
+        let wrap_ref = WrapDatabaseRef(buffered_trie_db);
+        println!("cycle-tracker-end initialize buffered trie db");
 
         // Execute the block.
         let mut executor_block_input = profile!("recover senders", {

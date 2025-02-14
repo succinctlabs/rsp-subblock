@@ -43,9 +43,14 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 alloy-provider.workspace = true
 alloy-transport.workspace = true
+alloy-rpc-types.workspace = true
+
+# rkyv
+rkyv.workspace = true
+
+# misc
 itertools = "0.13.0"
 futures.workspace = true
-alloy-rpc-types.workspace = true
 lazy_static = "1.5.0"
 
 [dev-dependencies]

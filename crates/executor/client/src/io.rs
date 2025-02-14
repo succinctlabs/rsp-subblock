@@ -3,7 +3,7 @@ use std::{collections::HashMap, iter::once};
 use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, KECCAK_EMPTY, U256,
 };
 use reth_trie::{HashedPostState, TrieAccount};
 use revm_primitives::{keccak256, Bytecode};
@@ -35,20 +35,27 @@ pub struct ClientExecutorInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SubblockInput<'a> {
+pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    /// Simple DB
-    pub simple_db: BufferedTrieDB<'a>,
+    /// The parent state as bytes.
+    pub parent_state_bytes: Vec<u8>,
+    /// The current state diff as bytes.
+    pub state_diff_bytes: Vec<u8>,
+    /// The blockhashes used by the subblock
+    /// This can be shrunk, but it's not a big deal
+    pub block_hashes: HashMap<u64, B256>,
     /// Whether this is the first subblock (do we need to do pre-execution transactions?)
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
     pub is_last_subblock: bool,
 }
 
-/// TODO: needs a better name
+/// Everything needed to run the subblock task e2e.
+///
+/// Necessary data for subblock stdin and agg stdin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AllSubblockOutputs {
+pub struct SubblockHostOutput {
     pub subblock_inputs: Vec<SubblockInput>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
@@ -174,17 +181,7 @@ pub struct TrieDB<'a> {
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    // Serialize,
-    // Deserialize,
-    // PartialEq,
-    // Eq,
-    /* rkyv::Archive,
-     * rkyv::Serialize,
-     * rkyv::Deserialize, */
-)]
+#[derive(Debug, Clone)]
 pub struct BufferedTrieDB<'a> {
     /// The underlying TrieDB.
     pub inner: TrieDB<'a>,
@@ -206,17 +203,11 @@ impl<'a> TrieDB<'a> {
     ) -> Self {
         Self { inner, block_hashes, bytecode_by_hash }
     }
-}
 
-impl<'a> DatabaseRef for TrieDB<'a> {
-    /// The database error type.
-    type Error = ProviderError;
-
-    /// Get basic account information.
-    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let hashed_address = keccak256(address);
-        let hashed_address = hashed_address.as_slice();
-
+    pub fn get_account_from_hashed_address(
+        &self,
+        hashed_address: &[u8],
+    ) -> Result<Option<AccountInfo>, <Self as DatabaseRef>::Error> {
         let account_in_trie = self.inner.state_trie.get_rlp::<TrieAccount>(hashed_address).unwrap();
 
         let account = account_in_trie.map(|account_in_trie| AccountInfo {
@@ -229,16 +220,11 @@ impl<'a> DatabaseRef for TrieDB<'a> {
         Ok(account)
     }
 
-    /// Get account code by its hash.
-    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
-        Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
-    }
-
-    /// Get storage value of address at index.
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let hashed_address = keccak256(address);
-        let hashed_address = hashed_address.as_slice();
-
+    pub fn get_storage_from_hashed_address(
+        &self,
+        hashed_address: &[u8],
+        index: U256,
+    ) -> Result<U256, <Self as DatabaseRef>::Error> {
         let storage_trie = self
             .inner
             .storage_tries
@@ -249,6 +235,31 @@ impl<'a> DatabaseRef for TrieDB<'a> {
             .get_rlp::<U256>(keccak256(index.to_be_bytes::<32>()).as_slice())
             .expect("Can get from MPT")
             .unwrap_or_default())
+    }
+}
+
+impl<'a> DatabaseRef for TrieDB<'a> {
+    /// The database error type.
+    type Error = ProviderError;
+
+    /// Get basic account information.
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        let hashed_address = keccak256(address);
+
+        self.get_account_from_hashed_address(hashed_address.as_slice())
+    }
+
+    /// Get account code by its hash.
+    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
+        Ok(self.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
+    }
+
+    /// Get storage value of address at index.
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        let hashed_address = keccak256(address);
+        let hashed_address = hashed_address.as_slice();
+
+        self.get_storage_from_hashed_address(hashed_address, index)
     }
 
     /// Get block hash by block number.
@@ -266,7 +277,20 @@ impl<'a> DatabaseRef for BufferedTrieDB<'a> {
 
     /// Get basic account information.
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        Ok(self.inner.basic_ref(address)?)
+        let hashed_address = keccak256(address);
+
+        match self.state_diff.accounts.get(&hashed_address) {
+            Some(account) => Ok(account.map(|account| AccountInfo {
+                balance: account.balance,
+                nonce: account.nonce,
+                code_hash: account.bytecode_hash.unwrap_or({
+                    println!("NO BYTECODE HASH");
+                    KECCAK_EMPTY
+                }),
+                code: None,
+            })),
+            None => self.inner.get_account_from_hashed_address(hashed_address.as_slice()),
+        }
     }
 
     /// Get account code by its hash.
@@ -277,12 +301,22 @@ impl<'a> DatabaseRef for BufferedTrieDB<'a> {
 
     /// Get storage value of address at index.
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        Ok(self.inner.storage_ref(address, index)?)
+        let hashed_address = keccak256(address);
+        match self.state_diff.storages.get(&hashed_address) {
+            Some(storage) => {
+                let hashed_index = keccak256(index.to_be_bytes::<32>());
+                Ok(*storage.storage.get(&hashed_index).unwrap_or({
+                    println!("NO STORAGE");
+                    &U256::ZERO
+                }))
+            }
+            None => self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index),
+        }
     }
 
     /// Get block hash by block number.
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        Ok(self.inner.block_hash_ref(number)?)
+        self.inner.block_hash_ref(number)
     }
 }
 
