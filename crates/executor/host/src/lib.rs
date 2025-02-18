@@ -10,12 +10,11 @@ use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
-use revm::db::{CacheDB, WrapDatabaseRef};
+use revm::db::CacheDB;
 use revm_primitives::Address;
 use rsp_client_executor::{
     io::{
-        AggregationInput, BufferedTrieDB, ClientExecutorInput, SubblockHostOutput, SubblockInput,
-        SubblockOutput,
+        AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
     },
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
 };
@@ -372,8 +371,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             // Save the subblock's `HashedPostState` for debugging.
             let target_post_state = executor_outcome.hash_state_slow();
 
-            let subblock_output =
-                SubblockOutput { receipts, logs_bloom, state_diff: target_post_state.clone() };
+            let subblock_output = SubblockOutput {
+                receipts,
+                logs_bloom,
+                output_state_diff: target_post_state.clone(),
+                parent_state_root: previous_block.state_root,
+                input_state_diff: all_executor_outcomes.hash_state_slow(),
+            };
             subblock_outputs.push(subblock_output);
 
             // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
@@ -562,7 +566,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let aggregation_input = AggregationInput {
             current_block: V::pre_process_block(&current_block),
             ancestor_headers,
-            parent_state: parent_state.clone(),
+            parent_state_bytes: rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state)
+                .unwrap()
+                .to_vec(),
             bytecodes: rpc_db.get_bytecodes(),
         };
 
@@ -579,7 +585,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
 
-            cumulative_state_diff.extend_ref(&subblock_outputs[i].state_diff);
+            cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
         }
 
         let all_subblock_outputs = SubblockHostOutput {

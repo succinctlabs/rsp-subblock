@@ -25,7 +25,9 @@ use reth_evm_ethereum::execute::EthExecutorProvider;
 use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
 use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
-use reth_primitives::{proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request};
+use reth_primitives::{
+    proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
+};
 use reth_trie::HashedPostState;
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, U256};
@@ -212,22 +214,24 @@ impl ClientExecutor {
     where
         V: Variant,
     {
-        // Initialize the unauthenticated database.
-        println!("cycle-tracker-start: initialize buffered trie db");
-        let mut aligned_vec = AlignedVec::<16>::new();
-        aligned_vec.extend_from_slice(&input.parent_state_bytes);
-        let parent_state =
-            rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap();
-        aligned_vec.clear();
-        aligned_vec.extend_from_slice(&input.state_diff_bytes);
-        let state_diff =
-            rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
+        // Initialize the database.
+        println!("cycle-tracker-start: initialize db");
+        // First deserialize the parent state, and calculate the parent state root.
+        let parent_state = input.deserialize_state();
+        let parent_state_root = parent_state.state_root();
+        // Then deserialize the input state diff.
+        let input_state_diff = input.deserialize_state_diff();
+
+        println!("cycle-tracker-start: construct buffered trie db");
+        // Finally, construct the database.
         // TODO: verify the parent block hashes????
         let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
         let trie_db = TrieDB::new(&parent_state, input.block_hashes, bytecode_by_hash);
-        let buffered_trie_db = BufferedTrieDB::new(trie_db, state_diff);
+        let buffered_trie_db = BufferedTrieDB::new(trie_db, &input_state_diff);
         let wrap_ref = WrapDatabaseRef(buffered_trie_db);
-        println!("cycle-tracker-end: initialize buffered trie db");
+        println!("cycle-tracker-end: construct buffered trie db");
+
+        println!("cycle-tracker-end: initialize db");
 
         // Execute the block.
         let mut executor_block_input = profile!("recover senders", {
@@ -264,9 +268,11 @@ impl ClientExecutor {
             );
 
             SubblockOutput {
-                state_diff: executor_outcome.hash_state_slow(),
+                output_state_diff: executor_outcome.hash_state_slow(),
                 logs_bloom,
                 receipts,
+                input_state_diff,
+                parent_state_root,
                 // requests,
             }
         });
@@ -280,25 +286,47 @@ impl ClientExecutor {
         vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
     ) -> Result<Header, ClientError> {
-        let mut aggregated_output = SubblockOutput::default();
+        let mut cumulative_state_diff = SubblockOutput::default();
+        let mut transaction_body = Vec::new();
         profile!("aggregate", {
             for public_value in public_values {
                 let public_values_digest = Sha256::digest(&public_value);
                 sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
                 let mut aligned_vec = AlignedVec::<16>::new();
 
-                // The first 32 bytes are the transaction hash.
-                aligned_vec.extend_from_slice(&public_value[32..]);
+                println!("cycle-tracker-start: deserialize subblock public values");
+                let (subblock_transactions, serialized_subblock_output) =
+                    bincode::deserialize::<(Vec<TransactionSigned>, Vec<u8>)>(&public_value)
+                        .unwrap();
+
+                // Parts of subblock input are serialized with rkyv, but the outer struct is bincode.
+                // The output is serialized entirely with rkyv.
+                aligned_vec.extend_from_slice(&serialized_subblock_output);
 
                 let subblock_output: SubblockOutput =
                     rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
-                aggregated_output.extend(subblock_output);
+
+                println!("cycle-tracker-end: deserialize subblock public values");
+
+                // Check that the subblock's input state diff matches the cumulative state diff.
+                // This function also contains consistency checks between the cumulative state diff
+                // and the subblock output.
+                cumulative_state_diff.extend(subblock_output);
+
+                // Also add this subblock's transaction body to the transaction body.
+                transaction_body.extend(subblock_transactions);
             }
         });
 
+        // Check that the subblock transactions match the main block transactions.
+        assert_eq!(
+            transaction_body, aggregation_input.current_block.body,
+            "subblock transactions do not match main block transactions"
+        );
+
         let mutated_state = profile!("update parent state", {
-            let mut parent_state = std::mem::take(&mut aggregation_input.parent_state);
-            parent_state.update(&aggregated_output.state_diff);
+            let mut parent_state = aggregation_input.deserialize_state();
+            parent_state.update(&cumulative_state_diff.output_state_diff);
             parent_state
         });
 
@@ -306,7 +334,7 @@ impl ClientExecutor {
             V::validate_subblock_aggregation(
                 &aggregation_input.current_block.header,
                 &V::spec(),
-                &aggregated_output.receipts,
+                &cumulative_state_diff.receipts,
                 // &aggregated_output.requests,
                 &Vec::new(),
             )
@@ -337,7 +365,7 @@ impl ClientExecutor {
             .withdrawals
             .take()
             .map(|w| proofs::calculate_withdrawals_root(w.into_inner().as_slice()));
-        header.logs_bloom = aggregated_output.logs_bloom;
+        header.logs_bloom = cumulative_state_diff.logs_bloom;
         header.requests_root = aggregation_input
             .current_block
             .requests

@@ -5,26 +5,26 @@ use rsp_client_executor::{hash_transactions, io::SubblockInput, ClientExecutor, 
 
 pub fn main() {
     // Read the input.
-    let input = sp1_zkvm::io::read_vec();
-    let input = bincode::deserialize::<SubblockInput>(&input).unwrap();
+    let input_bytes = sp1_zkvm::io::read_vec();
+    println!("len input bytes: {}", input_bytes.len());
+    let input = bincode::deserialize::<SubblockInput>(&input_bytes).unwrap();
 
-    // This is never deserialized so I don't care about using slow bincode.
-    // Also it's pretty small.
-    let transaction_hash = hash_transactions(&input.current_block.body);
-    // println!("yuwen_transaction_hash: {:?}", transaction_hash);
-    sp1_zkvm::io::commit(&transaction_hash);
+    println!("cycle-tracker-start: clone transactions");
+    let transactions = input.current_block.body.clone();
+    println!("cycle-tracker-end: clone transactions");
 
     // Execute the block.
     let executor = ClientExecutor;
     let state_diff =
         executor.execute_subblock::<EthereumVariant>(input).expect("failed to execute client");
 
-    // println!("yuwen_subblock_output: {:?}", state_diff);
-
     // Commit the state diff.
+    println!("cycle-tracker-start: serialize state diff");
     let serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&state_diff)
         .expect("failed to serialize state diff")
         .to_vec();
-    // println!("yuwen_serialized: {:?}", serialized);
-    sp1_zkvm::io::commit_slice(&serialized);
+    println!("cycle-tracker-end: serialize state diff");
+    println!("cycle-tracker-start: commit");
+    sp1_zkvm::io::commit(&(transactions, serialized));
+    println!("cycle-tracker-end: commit");
 }

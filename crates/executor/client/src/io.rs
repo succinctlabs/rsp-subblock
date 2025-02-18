@@ -7,6 +7,7 @@ use reth_primitives::{
 };
 use reth_trie::{HashedPostState, TrieAccount};
 use revm_primitives::{keccak256, Bytecode};
+use rkyv::util::AlignedVec;
 use rsp_mpt::EthereumState;
 //use rsp_witness_db::WitnessDb;
 use revm::DatabaseRef;
@@ -38,9 +39,10 @@ pub struct ClientExecutorInput {
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    /// The parent state as bytes.
+    /// The parent state as rkyv bytes.
     pub parent_state_bytes: Vec<u8>,
-    /// The current state diff as bytes.
+    /// The current state diff as of the start of the subblock.
+    /// Represented as rkyv bytes.
     pub state_diff_bytes: Vec<u8>,
     /// The blockhashes used by the subblock
     /// This can be shrunk, but it's not a big deal
@@ -52,6 +54,20 @@ pub struct SubblockInput {
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
     pub is_last_subblock: bool,
+}
+
+impl SubblockInput {
+    pub fn deserialize_state(&self) -> EthereumState {
+        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
+        aligned_vec.extend_from_slice(&self.parent_state_bytes);
+        rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
+    }
+
+    pub fn deserialize_state_diff(&self) -> HashedPostState {
+        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.state_diff_bytes.len());
+        aligned_vec.extend_from_slice(&self.state_diff_bytes);
+        rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap()
+    }
 }
 
 /// Everything needed to run the subblock task e2e.
@@ -66,6 +82,8 @@ pub struct SubblockHostOutput {
 
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
+///
+/// TODO: put the bincoded public values
 ///
 /// Instead of passing in the entire state, we only pass in the state roots along with merkle proofs
 /// for the storage slots that were modified and accessed.
@@ -86,8 +104,8 @@ pub struct AggregationInput {
     /// The previous block headers starting from the most recent. There must be at least one header
     /// to provide the parent state root.
     pub ancestor_headers: Vec<Header>,
-    /// Network state as of the parent block.
-    pub parent_state: EthereumState,
+    /// Network state as of the parent block, serialized with rkyv.
+    pub parent_state_bytes: Vec<u8>,
     /// Account bytecodes.
     pub bytecodes: Vec<Bytecode>,
 }
@@ -95,6 +113,12 @@ pub struct AggregationInput {
 impl AggregationInput {
     pub fn parent_header(&self) -> &Header {
         &self.ancestor_headers[0]
+    }
+
+    pub fn deserialize_state(&self) -> EthereumState {
+        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
+        aligned_vec.extend_from_slice(&self.parent_state_bytes);
+        rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
     }
 }
 
@@ -151,26 +175,45 @@ impl WitnessInput for ClientExecutorInput {
     Eq,
 )]
 pub struct SubblockOutput {
-    pub state_diff: HashedPostState,
+    /// The state diff from just this subblock.
+    ///
+    /// This will be applied to the `input_state_diff` in the aggregation program.
+    pub output_state_diff: HashedPostState,
+    /// The logs bloom.
     pub logs_bloom: Bloom,
+    /// The transaction receipts.
     pub receipts: Vec<Receipt>,
+    /// The parent state root.
+    pub parent_state_root: B256,
+    /// Input state diff.
+    pub input_state_diff: HashedPostState,
     // pub requests: Vec<Request>, // This is only needed for pectra.
 }
 
 impl SubblockOutput {
+    /// This is intended to ONLY be called by consecutive subblocks of the same block.
+    /// self is the current cumulative subblock output, and other is the new subblock output.
     pub fn extend(&mut self, other: Self) {
         let cumulative_gas_used = match self.receipts.last() {
             Some(receipt) => receipt.cumulative_gas_used,
             None => 0,
         };
 
-        self.state_diff.extend(other.state_diff);
+        // Make sure that the current output state diff lines up with the next input state diff.
+        assert_eq!(self.output_state_diff, other.input_state_diff);
+        self.output_state_diff.extend(other.output_state_diff);
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
         let mut receipts = other.receipts;
         receipts.iter_mut().for_each(|receipt| {
             receipt.cumulative_gas_used += cumulative_gas_used;
         });
         self.receipts.extend(receipts);
+
+        // Ensure that both parent state roots are the same.
+        // TODO: initialize the first parent state root. Maybe an option or something.
+        if self.parent_state_root != B256::ZERO {
+            assert_eq!(self.parent_state_root, other.parent_state_root);
+        }
         // self.requests.extend(other.requests);
     }
 }
@@ -189,11 +232,11 @@ pub struct BufferedTrieDB<'a> {
     /// The underlying TrieDB.
     pub inner: TrieDB<'a>,
     /// The cached HashedPostState.
-    pub state_diff: HashedPostState,
+    pub state_diff: &'a HashedPostState,
 }
 
 impl<'a> BufferedTrieDB<'a> {
-    pub fn new(inner: TrieDB<'a>, state_diff: HashedPostState) -> Self {
+    pub fn new(inner: TrieDB<'a>, state_diff: &'a HashedPostState) -> Self {
         Self { inner, state_diff }
     }
 }
@@ -280,7 +323,6 @@ impl<'a> DatabaseRef for BufferedTrieDB<'a> {
 
     /// Get basic account information.
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        println!("basic_ref @ {:?}", address);
         let hashed_address = keccak256(address);
 
         match self.state_diff.accounts.get(&hashed_address) {
@@ -300,10 +342,12 @@ impl<'a> DatabaseRef for BufferedTrieDB<'a> {
         match self.state_diff.storages.get(&hashed_address) {
             Some(storage) => {
                 let hashed_index = keccak256(index.to_be_bytes::<32>());
-                Ok(*storage.storage.get(&hashed_index).unwrap_or({
-                    println!("NO STORAGE");
-                    &U256::ZERO
-                }))
+                match storage.storage.get(&hashed_index) {
+                    Some(value) => Ok(*value),
+                    None => {
+                        self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index)
+                    }
+                }
             }
             None => self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index),
         }
