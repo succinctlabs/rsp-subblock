@@ -5,7 +5,7 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{borrow::BorrowMut, collections::HashMap, fmt::Display};
+use std::{borrow::BorrowMut, fmt::Display, io::Cursor};
 
 use custom::CustomEvmConfig;
 use error::ClientError;
@@ -210,17 +210,19 @@ impl ClientExecutor {
         Ok(header)
     }
 
-    pub fn execute_subblock<V>(&self, input: SubblockInput) -> Result<SubblockOutput, ClientError>
+    pub fn execute_subblock<V>(
+        &self,
+        input: SubblockInput,
+        parent_state: EthereumState,
+        input_state_diff: HashedPostState,
+    ) -> Result<SubblockOutput, ClientError>
     where
         V: Variant,
     {
         // Initialize the database.
         println!("cycle-tracker-start: initialize db");
         // First deserialize the parent state, and calculate the parent state root.
-        let parent_state = input.deserialize_state();
         let parent_state_root = parent_state.state_root();
-        // Then deserialize the input state diff.
-        let input_state_diff = input.deserialize_state_diff();
 
         println!("cycle-tracker-start: construct buffered trie db");
         // Finally, construct the database.
@@ -285,6 +287,7 @@ impl ClientExecutor {
         public_values: Vec<Vec<u8>>,
         vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
+        mut parent_state: EthereumState,
     ) -> Result<Header, ClientError> {
         let mut cumulative_state_diff = SubblockOutput::default();
         let mut transaction_body = Vec::new();
@@ -292,17 +295,13 @@ impl ClientExecutor {
             for public_value in public_values {
                 let public_values_digest = Sha256::digest(&public_value);
                 sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
-                let mut aligned_vec = AlignedVec::<16>::new();
-
                 println!("cycle-tracker-start: deserialize subblock public values");
-                let (subblock_transactions, serialized_subblock_output) =
-                    bincode::deserialize::<(Vec<TransactionSigned>, Vec<u8>)>(&public_value)
-                        .unwrap();
+                let mut reader = Cursor::new(&public_value);
+                let subblock_transactions: Vec<TransactionSigned> =
+                    bincode::deserialize_from(&mut reader).unwrap();
 
-                // Parts of subblock input are serialized with rkyv, but the outer struct is bincode.
-                // The output is serialized entirely with rkyv.
-                aligned_vec.extend_from_slice(&serialized_subblock_output);
-
+                let mut aligned_vec = AlignedVec::<16>::with_capacity(public_value.len());
+                aligned_vec.extend_from_reader(&mut reader).unwrap();
                 let subblock_output: SubblockOutput =
                     rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
 
@@ -324,12 +323,6 @@ impl ClientExecutor {
             "subblock transactions do not match main block transactions"
         );
 
-        let mutated_state = profile!("update parent state", {
-            let mut parent_state = aggregation_input.deserialize_state();
-            parent_state.update(&cumulative_state_diff.output_state_diff);
-            parent_state
-        });
-
         profile!("validate subblock aggregation", {
             V::validate_subblock_aggregation(
                 &aggregation_input.current_block.header,
@@ -341,6 +334,10 @@ impl ClientExecutor {
             .expect("failed to validate subblock aggregation")
         });
 
+        let mutated_state = profile!("update parent state", {
+            parent_state.update(&cumulative_state_diff.output_state_diff);
+            parent_state
+        });
         let state_root = profile!("verify state root", { mutated_state.state_root() });
 
         if state_root != aggregation_input.current_block.state_root {

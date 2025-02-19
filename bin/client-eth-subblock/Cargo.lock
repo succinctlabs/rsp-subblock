@@ -2944,8 +2944,10 @@ version = "0.0.0"
 dependencies = [
  "bincode",
  "log",
+ "reth-trie",
  "rkyv",
  "rsp-client-executor",
+ "rsp-mpt",
  "sha2",
  "sp1-zkvm",
  "tracing",

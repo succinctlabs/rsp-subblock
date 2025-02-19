@@ -3,14 +3,12 @@ use std::{collections::HashMap, iter::once};
 use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, KECCAK_EMPTY, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, U256,
 };
 use reth_trie::{HashedPostState, TrieAccount};
-use revm_primitives::{keccak256, Bytecode};
-use rkyv::util::AlignedVec;
-use rsp_mpt::EthereumState;
-//use rsp_witness_db::WitnessDb;
 use revm::DatabaseRef;
+use revm_primitives::{keccak256, Bytecode};
+use rsp_mpt::EthereumState;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ClientError;
@@ -39,11 +37,11 @@ pub struct ClientExecutorInput {
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    /// The parent state as rkyv bytes.
-    pub parent_state_bytes: Vec<u8>,
-    /// The current state diff as of the start of the subblock.
-    /// Represented as rkyv bytes.
-    pub state_diff_bytes: Vec<u8>,
+    // /// The parent state as rkyv bytes.
+    // pub parent_state_bytes: Vec<u8>,
+    // /// The current state diff as of the start of the subblock.
+    // /// Represented as rkyv bytes.
+    // pub state_diff_bytes: Vec<u8>,
     /// The blockhashes used by the subblock
     /// This can be shrunk, but it's not a big deal
     pub block_hashes: HashMap<u64, B256>,
@@ -56,19 +54,30 @@ pub struct SubblockInput {
     pub is_last_subblock: bool,
 }
 
-impl SubblockInput {
-    pub fn deserialize_state(&self) -> EthereumState {
-        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-        aligned_vec.extend_from_slice(&self.parent_state_bytes);
-        rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
-    }
+// impl SubblockInput {
+//     pub fn deserialize_state(&self) -> EthereumState {
+//         println!("cycle-tracker-start: align");
+//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
+//         aligned_vec.extend_from_slice(&self.parent_state_bytes);
+//         println!("cycle-tracker-end: align");
+//         println!("cycle-tracker-start: deserialize parent state");
+//         let result = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap();
+//         println!("cycle-tracker-end: deserialize parent state");
+//         result
+//     }
 
-    pub fn deserialize_state_diff(&self) -> HashedPostState {
-        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.state_diff_bytes.len());
-        aligned_vec.extend_from_slice(&self.state_diff_bytes);
-        rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap()
-    }
-}
+//     pub fn deserialize_state_diff(&self) -> HashedPostState {
+//         println!("cycle-tracker-start: align");
+//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.state_diff_bytes.len());
+//         aligned_vec.extend_from_slice(&self.state_diff_bytes);
+//         println!("cycle-tracker-end: align");
+//         println!("cycle-tracker-start: deserialize state diff");
+//         let result =
+//             rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
+//         println!("cycle-tracker-end: deserialize state diff");
+//         result
+//     }
+// }
 
 /// Everything needed to run the subblock task e2e.
 ///
@@ -76,8 +85,11 @@ impl SubblockInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubblockHostOutput {
     pub subblock_inputs: Vec<SubblockInput>,
+    pub subblock_parent_states: Vec<Vec<u8>>,
+    pub subblock_input_diffs: Vec<Vec<u8>>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
+    pub agg_parent_state: Vec<u8>,
 }
 
 /// The input for the client to execute a block and fully verify the STF (state transition
@@ -104,8 +116,8 @@ pub struct AggregationInput {
     /// The previous block headers starting from the most recent. There must be at least one header
     /// to provide the parent state root.
     pub ancestor_headers: Vec<Header>,
-    /// Network state as of the parent block, serialized with rkyv.
-    pub parent_state_bytes: Vec<u8>,
+    // /// Network state as of the parent block, serialized with rkyv.
+    // pub parent_state_bytes: Vec<u8>,
     /// Account bytecodes.
     pub bytecodes: Vec<Bytecode>,
 }
@@ -115,11 +127,11 @@ impl AggregationInput {
         &self.ancestor_headers[0]
     }
 
-    pub fn deserialize_state(&self) -> EthereumState {
-        let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-        aligned_vec.extend_from_slice(&self.parent_state_bytes);
-        rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
-    }
+    // pub fn deserialize_state(&self) -> EthereumState {
+    //     let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
+    //     aligned_vec.extend_from_slice(&self.parent_state_bytes);
+    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
+    // }
 }
 
 impl ClientExecutorInput {

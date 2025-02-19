@@ -7,7 +7,7 @@ use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::{
     hash_transactions,
-    io::{AggregationInput, SubblockHostOutput, SubblockInput, SubblockOutput},
+    io::{AggregationInput, SubblockHostOutput, SubblockInput},
 };
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
@@ -26,8 +26,6 @@ use sp1_worker::{
     client::ClusterClient,
     proto::{Artifact, TaskType},
 };
-
-use std::sync::Arc;
 
 mod execute;
 

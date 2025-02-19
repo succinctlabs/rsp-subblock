@@ -316,10 +316,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let mut num_transactions_completed: u64 = 0;
 
-        let mut result = Vec::new();
+        let mut subblock_inputs = Vec::new();
         let mut global_logs_bloom = Bloom::default();
 
         let mut subblock_outputs = Vec::new();
+        let mut subblock_parent_states = Vec::new();
 
         while current_block.body.len() as u64 > num_transactions_completed {
             tracing::info!("executing subblock");
@@ -383,14 +384,43 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
             all_executor_outcomes.extend(executor_outcome);
 
-            // Merge the state requests from the subblock into `all_state_requests`.
+            // Construct a sparse parent state from the subblock's state requests. The subblock will
+            // read from this sparse trie.
             let subblock_state_requests = rpc_db.get_state_requests();
+            let mut before_storage_proofs = Vec::new();
+            for (address, used_keys) in subblock_state_requests.iter() {
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                let storage_proof = self
+                    .provider
+                    .get_proof(*address, keys)
+                    .block_id((block_number - 1).into())
+                    .await?;
+                before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+            }
+
+            let state = EthereumState::from_transition_proofs(
+                previous_block.state_root,
+                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
+                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
+            )?;
+
+            let parent_state_bytes =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&state).unwrap().to_vec();
+            subblock_parent_states.push(parent_state_bytes);
+
+            // Merge the state requests from the subblock into `all_state_requests`.
             merge_state_requests(&mut all_state_requests, &subblock_state_requests);
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                parent_state_bytes: Vec::new(),
-                state_diff_bytes: Vec::new(),
+                // parent_state_bytes,
+                // state_diff_bytes: Vec::new(),
                 block_hashes: HashMap::new(),
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
@@ -446,7 +476,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             num_transactions_completed = upper;
             rpc_db.advance_subblock();
 
-            result.push(subblock_input);
+            subblock_inputs.push(subblock_input);
         }
 
         // Commented this out for now, since gas used won't line up.
@@ -566,9 +596,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let aggregation_input = AggregationInput {
             current_block: V::pre_process_block(&current_block),
             ancestor_headers,
-            parent_state_bytes: rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state)
-                .unwrap()
-                .to_vec(),
+            // parent_state_bytes: rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state)
+            //     .unwrap()
+            //     .to_vec(),
             bytecodes: rpc_db.get_bytecodes(),
         };
 
@@ -576,22 +606,25 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
         let mut cumulative_state_diff = HashedPostState::default();
-
-        for i in 0..result.len() {
-            let subblock_input = &mut result[i];
+        let mut subblock_input_diffs = Vec::new();
+        for i in 0..subblock_inputs.len() {
+            let subblock_input = &mut subblock_inputs[i];
             let state_diff_bytes =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
-            subblock_input.state_diff_bytes = state_diff_bytes.to_vec();
-            subblock_input.parent_state_bytes = parent_state_bytes.clone();
+            subblock_input_diffs.push(state_diff_bytes.to_vec());
+            // subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
 
             cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
         }
 
         let all_subblock_outputs = SubblockHostOutput {
-            subblock_inputs: result,
+            subblock_inputs,
+            subblock_parent_states,
+            subblock_input_diffs,
             subblock_outputs,
             agg_input: aggregation_input,
+            agg_parent_state: parent_state_bytes,
         };
 
         Ok(all_subblock_outputs)

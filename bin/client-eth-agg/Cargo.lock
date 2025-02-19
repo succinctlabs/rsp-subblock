@@ -2948,6 +2948,7 @@ dependencies = [
  "reth-trie",
  "rkyv",
  "rsp-client-executor",
+ "rsp-mpt",
  "sp1-zkvm",
  "tracing",
 ]

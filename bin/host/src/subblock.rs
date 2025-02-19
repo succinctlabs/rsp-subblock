@@ -103,12 +103,16 @@ async fn main() -> eyre::Result<()> {
 
     let mut public_values = Vec::new();
     let mut agg_stdin = SP1Stdin::new();
-    for input in client_input.subblock_inputs {
+    for i in 0..client_input.subblock_inputs.len() {
+        let input = &client_input.subblock_inputs[i];
+        let parent_state = &client_input.subblock_parent_states[i];
+        let input_state_diff = &client_input.subblock_input_diffs[i];
+
         // Execute the block inside the zkVM.
         let mut stdin = SP1Stdin::new();
-        let buffer = bincode::serialize(&input).unwrap();
-        stdin.write_vec(buffer);
-
+        stdin.write(&input);
+        stdin.write_vec(parent_state.clone());
+        stdin.write_vec(input_state_diff.clone());
         // Generate the subblock proof.
         let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
 
@@ -120,7 +124,7 @@ async fn main() -> eyre::Result<()> {
     }
     println!("subblock proofs generated");
 
-    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
+    let (pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     #[cfg(debug_assertions)]
@@ -133,8 +137,8 @@ async fn main() -> eyre::Result<()> {
     }
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
     agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
-    let buffer = bincode::serialize(&client_input.agg_input).unwrap();
-    agg_stdin.write_vec(buffer);
+    agg_stdin.write(&client_input.agg_input);
+    agg_stdin.write_vec(client_input.agg_parent_state);
 
     if args.execute {
         let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();

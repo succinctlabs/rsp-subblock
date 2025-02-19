@@ -9,6 +9,7 @@ bincode = "1.3.3"
 
 # workspace
 rsp-client-executor = { path = "../../crates/executor/client" }
+rsp-mpt = { path = "../../crates/mpt" }
 
 
 # reth
