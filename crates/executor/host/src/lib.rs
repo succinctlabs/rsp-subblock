@@ -612,6 +612,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             let state_diff_bytes =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
             subblock_input_diffs.push(state_diff_bytes.to_vec());
+            subblock_outputs[i].input_state_diff = cumulative_state_diff.clone();
             // subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
 

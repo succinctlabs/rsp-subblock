@@ -119,6 +119,8 @@ async fn main() -> eyre::Result<()> {
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 
+        println!("public values: {:?}", proof.public_values.hash());
+
         let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
         agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
     }
@@ -127,14 +129,6 @@ async fn main() -> eyre::Result<()> {
     let (pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
-    #[cfg(debug_assertions)]
-    {
-        let subblock_output: SubblockOutput =
-            rkyv::from_bytes::<SubblockOutput, rkyv::rancor::BoxedError>(&public_values[0][32..])
-                .unwrap();
-
-        println!("subblock output: {:?}", subblock_output);
-    }
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
     agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     agg_stdin.write(&client_input.agg_input);

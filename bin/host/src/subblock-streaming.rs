@@ -12,8 +12,8 @@ use rsp_client_executor::{
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
-    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
-    SP1VerifyingKey,
+    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
+    SP1PublicValues, SP1Stdin, SP1VerifyingKey,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -167,9 +167,15 @@ async fn schedule_task(
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
 
-    for input in inputs.subblock_inputs {
+    for i in 0..inputs.subblock_inputs.len() {
+        let input = &inputs.subblock_inputs[i];
+        let parent_state = &inputs.subblock_parent_states[i];
+        let input_state_diff = &inputs.subblock_input_diffs[i];
+
         let mut stdin = SP1Stdin::new();
-        stdin.write_vec(bincode::serialize(&input).expect("failed to bincode serialize input"));
+        stdin.write(input);
+        stdin.write_vec(parent_state.clone());
+        stdin.write_vec(input_state_diff.clone());
         let artifact =
             upload_artifact(&cluster_client, "subblock_input", stdin, ArtifactType::Stdin).await?;
         subblock_input_artifacts.push(artifact);
@@ -252,24 +258,23 @@ async fn schedule_task(
 
 /// Constructs the aggregation stdin, sans the subblock proofs.
 pub fn to_aggregation_stdin(
-    all_subblock_outputs: SubblockHostOutput,
+    subblock_host_output: SubblockHostOutput,
     subblock_vk: &SP1VerifyingKey,
 ) -> SP1Stdin {
     let mut stdin = SP1Stdin::new();
 
     assert_eq!(
-        all_subblock_outputs.subblock_inputs.len(),
-        all_subblock_outputs.subblock_outputs.len()
+        subblock_host_output.subblock_inputs.len(),
+        subblock_host_output.subblock_outputs.len()
     );
     let mut public_values = Vec::new();
-    for i in 0..all_subblock_outputs.subblock_inputs.len() {
+    for i in 0..subblock_host_output.subblock_inputs.len() {
         let mut current_public_values = Vec::new();
-        let transaction_hash =
-            hash_transactions(&all_subblock_outputs.subblock_inputs[i].current_block.body);
-        bincode::serialize_into(&mut current_public_values, &transaction_hash).unwrap();
+        let transactions = &subblock_host_output.subblock_inputs[i].current_block.body;
+        bincode::serialize_into(&mut current_public_values, transactions).unwrap();
 
         let serialized =
-            rkyv::to_bytes::<rkyv::rancor::BoxedError>(&all_subblock_outputs.subblock_outputs[i])
+            rkyv::to_bytes::<rkyv::rancor::BoxedError>(&subblock_host_output.subblock_outputs[i])
                 .expect("failed to serialize state diff")
                 .to_vec();
 
@@ -279,7 +284,7 @@ pub fn to_aggregation_stdin(
         //     let deserialized_2 =
         //         rkyv::from_bytes::<SubblockOutput, rkyv::rancor::BoxedError>(&serialized).unwrap();
 
-        //     assert_eq!(all_subblock_outputs.subblock_outputs[i], deserialized_2);
+        //     assert_eq!(subblock_host_output.subblock_outputs[i], deserialized_2);
         //     serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&deserialized_2)
         //         .expect("failed to serialize state diff")
         //         .to_vec();
@@ -291,12 +296,15 @@ pub fn to_aggregation_stdin(
 
         current_public_values.write_all(&serialized).unwrap();
 
+        let sp1_pv = SP1PublicValues::from(&current_public_values);
+
+        println!("sp1_pv: {:?}", sp1_pv.hash());
         public_values.push(current_public_values);
     }
     stdin.write::<Vec<Vec<u8>>>(&public_values);
     stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
-    let buffer = bincode::serialize(&all_subblock_outputs.agg_input).unwrap();
-    stdin.write_vec(buffer);
+    stdin.write(&subblock_host_output.agg_input);
+    stdin.write_vec(subblock_host_output.agg_parent_state);
     stdin
 }
 

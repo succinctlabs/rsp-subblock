@@ -51,6 +51,6 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 
 # sp1
-sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "dev", features = ["verify"] }
+sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/debug", features = ["verify"] }
 
 [dev-dependencies]

@@ -22,7 +22,7 @@ reth-primitives = { path = "../../../reth/crates/primitives", default-features =
 reth-trie = { path = "../../../reth/crates/trie/trie", default-features = false, features = ["serde"] }
 
 # sp1
-sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "dev" }
+sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/debug" }
 
 # rkyv
 rkyv = "0.8.10"
