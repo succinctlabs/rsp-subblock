@@ -35,6 +35,7 @@ chrono = "0.4.39"
 rkyv = "0.8.10"
 
 sp1-worker = { git = "https://github.com/succinctlabs/sp1-prover-service.git", branch = "yuwen/aggregator"}
+# sp1-worker = { path = "../../../sp1-prover-service/cluster/worker" }
 
 [build-dependencies]
 sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/debug" }

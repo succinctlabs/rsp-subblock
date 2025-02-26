@@ -7706,7 +7706,7 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Faggregator#29075fd107f1ac8630af1f98cc8b992a9f6df5c2"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Faggregator#6126463e3218e237fafe8344c7bd487fbd579ec1"
 dependencies = [
  "anyhow",
  "async-channel",
