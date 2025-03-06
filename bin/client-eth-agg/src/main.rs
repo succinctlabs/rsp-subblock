@@ -17,11 +17,14 @@ pub fn main() {
 
     println!("cycle-tracker-start: deserialize parent state");
     let parent_state_bytes = sp1_zkvm::io::read_vec();
+    println!("cycle-tracker-start: align parent state");
     let mut aligned = AlignedVec::<16>::with_capacity(parent_state_bytes.len());
     aligned.extend_from_slice(&parent_state_bytes);
+    println!("cycle-tracker-end: align parent state");
     let parent_state =
         rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned).unwrap();
     println!("cycle-tracker-end: deserialize parent state");
+    println!("cycle-tracker-end: deserialize");
 
     let client = ClientExecutor;
 

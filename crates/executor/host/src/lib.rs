@@ -32,9 +32,9 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
 }
 lazy_static::lazy_static! {
     /// Number of transactions per subblock.
-    pub static ref TRANSACTIONS_PER_SUBBLOCK: u64 = std::env::var("TRANSACTIONS_PER_SUBBLOCK")
+    pub static ref SUBBLOCK_GAS_LIMIT: u64 = std::env::var("SUBBLOCK_GAS_LIMIT")
         .map(|s| s.parse().unwrap())
-        .unwrap_or(32);
+        .unwrap_or(1_000_000);
 }
 
 fn merge_state_requests(
@@ -325,22 +325,25 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         while current_block.body.len() as u64 > num_transactions_completed {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
-            let upper = std::cmp::min(
-                current_block.body.len() as u64,
-                num_transactions_completed + *TRANSACTIONS_PER_SUBBLOCK,
-            );
             let mut subblock_input = executor_block_input.clone();
             subblock_input.body =
-                subblock_input.body[num_transactions_completed as usize..upper as usize].to_vec();
-            subblock_input.senders = subblock_input.senders
-                [num_transactions_completed as usize..upper as usize]
-                .to_vec();
+                subblock_input.body[num_transactions_completed as usize..].to_vec();
+            subblock_input.senders =
+                subblock_input.senders[num_transactions_completed as usize..].to_vec();
 
             let is_first_subblock = num_transactions_completed == 0;
-            let is_last_subblock = upper == current_block.body.len() as u64;
             subblock_input.is_first_subblock = is_first_subblock;
-            subblock_input.is_last_subblock = is_last_subblock;
+            subblock_input.is_last_subblock = false;
+            subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT;
+
+            tracing::info!("num transactions left: {}", subblock_input.body.len());
+
+            // This looks suspiciously normal... it's because I put all the subblock config in the BlockWithSenders
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
+
+            let num_executed_transactions = subblock_output.receipts.len();
+            let upper = num_transactions_completed + num_executed_transactions as u64;
+            let is_last_subblock = upper == subblock_input.body.len() as u64;
 
             tracing::info!(
                 "successfully executed subblock: num_transactions_completed={}, upper={}",

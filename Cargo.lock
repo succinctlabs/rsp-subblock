@@ -762,12 +762,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
-name = "arc-swap"
-version = "1.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
-
-[[package]]
 name = "ark-ff"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1006,9 +1000,9 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "aws-config"
-version = "1.5.16"
+version = "1.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50236e4d60fe8458de90a71c0922c761e41755adf091b1b03de1cef537179915"
+checksum = "90aff65e86db5fe300752551c1b015ef72b708ac54bded8ef43d0d53cb7cb0b1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1016,7 +1010,7 @@ dependencies = [
  "aws-sdk-ssooidc",
  "aws-sdk-sts",
  "aws-smithy-async",
- "aws-smithy-http",
+ "aws-smithy-http 0.61.1",
  "aws-smithy-json",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1056,7 +1050,7 @@ dependencies = [
  "aws-sigv4",
  "aws-smithy-async",
  "aws-smithy-eventstream",
- "aws-smithy-http",
+ "aws-smithy-http 0.60.12",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1074,9 +1068,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.74.0"
+version = "1.78.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f551566d462b47c3e49b330f1b86e69e7dc6e4d4efb1959e28c5c82d22e79f7c"
+checksum = "3038614b6cf7dd68d9a7b5b39563d04337eb3678d1d4173e356e927b0356158a"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1084,7 +1078,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-checksums",
  "aws-smithy-eventstream",
- "aws-smithy-http",
+ "aws-smithy-http 0.61.1",
  "aws-smithy-json",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1108,14 +1102,14 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sso"
-version = "1.58.0"
+version = "1.61.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16ff718c9ee45cc1ebd4774a0e086bb80a6ab752b4902edf1c9f56b86ee1f770"
+checksum = "e65ff295979977039a25f5a0bf067a64bc5e6aa38f3cef4037cf42516265553c"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http",
+ "aws-smithy-http 0.61.1",
  "aws-smithy-json",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1130,14 +1124,14 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ssooidc"
-version = "1.59.0"
+version = "1.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5183e088715cc135d8d396fdd3bc02f018f0da4c511f53cb8d795b6a31c55809"
+checksum = "91430a60f754f235688387b75ee798ef00cfd09709a582be2b7525ebb5306d4f"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http",
+ "aws-smithy-http 0.61.1",
  "aws-smithy-json",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1152,14 +1146,14 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "1.59.0"
+version = "1.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9f944ef032717596639cea4a2118a3a457268ef51bbb5fde9637e54c465da00"
+checksum = "9276e139d39fff5a0b0c984fc2d30f970f9a202da67234f948fda02e5bea1dbe"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http",
+ "aws-smithy-http 0.61.1",
  "aws-smithy-json",
  "aws-smithy-query",
  "aws-smithy-runtime",
@@ -1175,13 +1169,13 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.2.8"
+version = "1.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc5bbd1e4a2648fd8c5982af03935972c24a2f9846b396de661d351ee3ce837"
+checksum = "9bfe75fad52793ce6dec0dc3d4b1f388f038b5eb866c8d4d7f3a8e21b5ea5051"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-eventstream",
- "aws-smithy-http",
+ "aws-smithy-http 0.60.12",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "bytes",
@@ -1215,11 +1209,11 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-checksums"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f45a1c384d7a393026bc5f5c177105aa9fa68e4749653b985707ac27d77295"
+checksum = "db2dc8d842d872529355c72632de49ef8c5a2949a4472f10e802f28cf925770c"
 dependencies = [
- "aws-smithy-http",
+ "aws-smithy-http 0.60.12",
  "aws-smithy-types",
  "bytes",
  "crc32c",
@@ -1237,9 +1231,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-eventstream"
-version = "0.60.6"
+version = "0.60.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b18559a41e0c909b77625adf2b8c50de480a8041e5e4a3f5f7d177db70abc5a"
+checksum = "461e5e02f9864cba17cff30f007c2e37ade94d01e87cdb5204e44a84e6d38c17"
 dependencies = [
  "aws-smithy-types",
  "bytes",
@@ -1251,6 +1245,26 @@ name = "aws-smithy-http"
 version = "0.60.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7809c27ad8da6a6a68c454e651d4962479e81472aa19ae99e59f9aba1f9713cc"
+dependencies = [
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "bytes",
+ "bytes-utils",
+ "futures-core",
+ "http 0.2.12",
+ "http-body 0.4.6",
+ "once_cell",
+ "percent-encoding",
+ "pin-project-lite",
+ "pin-utils",
+ "tracing",
+]
+
+[[package]]
+name = "aws-smithy-http"
+version = "0.61.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6f276f21c7921fe902826618d1423ae5bf74cf8c1b8472aee8434f3dfd31824"
 dependencies = [
  "aws-smithy-eventstream",
  "aws-smithy-runtime-api",
@@ -1293,7 +1307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d526a12d9ed61fadefda24abe2e682892ba288c2018bcb38b1b4c111d13f6d92"
 dependencies = [
  "aws-smithy-async",
- "aws-smithy-http",
+ "aws-smithy-http 0.60.12",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "bytes",
@@ -1796,9 +1810,9 @@ dependencies = [
 
 [[package]]
 name = "cargo_metadata"
-version = "0.19.1"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8769706aad5d996120af43197bf46ef6ad0fda35216b4505f926a365a232d924"
+checksum = "dd5eb614ed4c27c5d706420e4320fbe3216ab31fa1c33cd8246ac36dae4479ba"
 dependencies = [
  "camino",
  "cargo-platform",
@@ -1930,16 +1944,6 @@ name = "colorchoice"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
-
-[[package]]
-name = "combine"
-version = "4.6.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
-dependencies = [
- "bytes",
- "memchr",
-]
 
 [[package]]
 name = "concurrent-queue"
@@ -2076,11 +2080,10 @@ dependencies = [
 
 [[package]]
 name = "crc64fast-nvme"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5e2ee08013e3f228d6d2394116c4549a6df77708442c62d887d83f68ef2ee37"
+checksum = "4955638f00a809894c947f85a024020a20815b65a5eea633798ea7924edab2b3"
 dependencies = [
- "cbindgen",
  "crc",
 ]
 
@@ -4483,9 +4486,9 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "openssl-src"
-version = "300.4.1+3.4.0"
+version = "300.4.2+3.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faa4eac4138c62414b5622d1b31c5c304f34b406b013c079c2bbc652fdd6678c"
+checksum = "168ce4e058f975fe43e89d9ccf78ca668601887ae736090aacc23ae353c298e2"
 dependencies = [
  "cc",
 ]
@@ -4501,6 +4504,22 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "opentelemetry"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e32339a5dc40459130b3bd269e9892439f55b33e772d2a9d402a789baaf4e8a"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "indexmap 2.7.0",
+ "js-sys",
+ "once_cell",
+ "pin-project-lite",
+ "thiserror 1.0.69",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4526,9 +4545,9 @@ dependencies = [
  "async-trait",
  "futures-core",
  "http 0.2.12",
- "opentelemetry",
+ "opentelemetry 0.23.0",
  "opentelemetry-proto",
- "opentelemetry_sdk",
+ "opentelemetry_sdk 0.23.0",
  "prost 0.12.6",
  "thiserror 1.0.69",
  "tokio",
@@ -4541,10 +4560,44 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "984806e6cf27f2b49282e2a05e288f30594f3dbc74eb7a6e99422bc48ed78162"
 dependencies = [
- "opentelemetry",
- "opentelemetry_sdk",
+ "opentelemetry 0.23.0",
+ "opentelemetry_sdk 0.23.0",
  "prost 0.12.6",
  "tonic 0.11.0",
+]
+
+[[package]]
+name = "opentelemetry-stdout"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c13b2df4cd59c176099ac82806725ba340c8fa7b1a7004c0912daad30470f63e"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "opentelemetry 0.21.0",
+ "opentelemetry_sdk 0.21.2",
+ "ordered-float",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f16aec8a98a457a52664d69e0091bac3a0abd18ead9b641cb00202ba4e0efe4"
+dependencies = [
+ "async-trait",
+ "crossbeam-channel",
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "once_cell",
+ "opentelemetry 0.21.0",
+ "ordered-float",
+ "percent-encoding",
+ "rand",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4560,7 +4613,7 @@ dependencies = [
  "glob",
  "lazy_static",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.23.0",
  "ordered-float",
  "percent-encoding",
  "rand",
@@ -5587,9 +5640,9 @@ dependencies = [
 
 [[package]]
 name = "raw-cpuid"
-version = "11.3.0"
+version = "11.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6928fa44c097620b706542d428957635951bade7143269085389d42c8a4927e"
+checksum = "c6df7ab838ed27997ba19a4664507e6f82b41fe6e20be42929332156e5e85146"
 dependencies = [
  "bitflags 2.8.0",
 ]
@@ -5621,23 +5674,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f87cc11a0140b4b0da0ffc889885760c61b13672d80a908920b2c0df078fa14"
 dependencies = [
  "rayon",
-]
-
-[[package]]
-name = "redis"
-version = "0.29.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8034fb926579ff49d3fe58d288d5dcb580bf11e9bccd33224b45adebf0fd0c23"
-dependencies = [
- "arc-swap",
- "combine",
- "itoa",
- "num-bigint 0.4.6",
- "percent-encoding",
- "ryu",
- "sha1_smol",
- "socket2",
- "url",
 ]
 
 [[package]]
@@ -6455,6 +6491,7 @@ dependencies = [
  "sp1-build",
  "sp1-sdk",
  "sp1-worker",
+ "spn-metrics",
  "tokio",
  "tracing-subscriber",
  "url",
@@ -7276,7 +7313,7 @@ dependencies = [
 [[package]]
 name = "sp1-build"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.18.1",
@@ -7288,7 +7325,7 @@ dependencies = [
 [[package]]
 name = "sp1-core-executor"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -7326,7 +7363,7 @@ dependencies = [
 [[package]]
 name = "sp1-core-machine"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "bincode",
  "cbindgen",
@@ -7382,7 +7419,7 @@ dependencies = [
 [[package]]
 name = "sp1-cuda"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "bincode",
  "ctrlc",
@@ -7398,7 +7435,7 @@ dependencies = [
 [[package]]
 name = "sp1-curves"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "cfg-if",
  "dashu",
@@ -7420,7 +7457,7 @@ dependencies = [
 [[package]]
 name = "sp1-derive"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -7468,7 +7505,7 @@ dependencies = [
 [[package]]
 name = "sp1-primitives"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "bincode",
  "hex",
@@ -7485,7 +7522,7 @@ dependencies = [
 [[package]]
 name = "sp1-prover"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "anyhow",
  "bincode",
@@ -7497,6 +7534,10 @@ dependencies = [
  "itertools 0.13.0",
  "lru",
  "num-bigint 0.4.6",
+ "opentelemetry 0.23.0",
+ "opentelemetry-otlp",
+ "opentelemetry-stdout",
+ "opentelemetry_sdk 0.23.0",
  "p3-baby-bear",
  "p3-bn254-fr",
  "p3-challenger",
@@ -7519,17 +7560,21 @@ dependencies = [
  "sp1-recursion-gnark-ffi",
  "sp1-stark",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "tracing-appender",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "sp1-recursion-circuit"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
+ "bincode",
  "hashbrown 0.14.5",
+ "hex",
  "itertools 0.13.0",
  "num-traits",
  "p3-air",
@@ -7547,6 +7592,7 @@ dependencies = [
  "rand",
  "rayon",
  "serde",
+ "sha2",
  "sp1-core-executor",
  "sp1-core-machine",
  "sp1-derive",
@@ -7561,9 +7607,8 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-compiler"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
- "backtrace",
  "itertools 0.13.0",
  "p3-baby-bear",
  "p3-bn254-fr",
@@ -7582,7 +7627,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-core"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "backtrace",
  "cbindgen",
@@ -7609,6 +7654,7 @@ dependencies = [
  "p3-util",
  "pathdiff",
  "rand",
+ "rayon",
  "serde",
  "sp1-core-machine",
  "sp1-derive",
@@ -7616,6 +7662,7 @@ dependencies = [
  "sp1-stark",
  "static_assertions",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "vec_map",
  "zkhash",
@@ -7624,7 +7671,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-derive"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -7633,7 +7680,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-gnark-ffi"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "anyhow",
  "bincode",
@@ -7658,7 +7705,7 @@ dependencies = [
 [[package]]
 name = "sp1-sdk"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "alloy-primitives",
  "alloy-signer 0.8.3",
@@ -7705,7 +7752,7 @@ dependencies = [
 [[package]]
 name = "sp1-stark"
 version = "4.1.0"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#25e0b76fea5a42f04b641eca7037d28316e66df0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fdebug#58a31dfc91cd42a78b9da2e593d5531c159db293"
 dependencies = [
  "arrayref",
  "hashbrown 0.14.5",
@@ -7739,7 +7786,7 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fredis-artifacts#0e5d8a53746722a0c58f1503e571504c81fca9b6"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Faggregator#7740eeefc45049758389c9af31504b10efcf1f5b"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -7764,9 +7811,9 @@ dependencies = [
  "log",
  "lru",
  "mti",
- "opentelemetry",
+ "opentelemetry 0.23.0",
  "opentelemetry-otlp",
- "opentelemetry_sdk",
+ "opentelemetry_sdk 0.23.0",
  "p3-baby-bear",
  "p3-challenger",
  "p3-field",
@@ -7778,7 +7825,6 @@ dependencies = [
  "pyroscope",
  "pyroscope_pprofrs",
  "rand",
- "redis",
  "reqwest",
  "reqwest-middleware",
  "reqwest-retry",
@@ -7872,7 +7918,7 @@ dependencies = [
 [[package]]
 name = "spn-metrics"
 version = "1.0.0"
-source = "git+https://github.com/succinctlabs/network#2fbadda8b4cb7048a40665900ae42ee43b15d3e3"
+source = "git+https://github.com/succinctlabs/network?rev=6c4df3468192ea3bdc474a4951baab7030dd2e50#6c4df3468192ea3bdc474a4951baab7030dd2e50"
 dependencies = [
  "eyre",
  "metrics",
@@ -7959,9 +8005,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symbolic-common"
-version = "12.13.4"
+version = "12.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6189977df1d6ec30c920647919d76f29fb8d8f25e8952e835b0fcda25e8f792"
+checksum = "66135c8273581acaab470356f808a1c74a707fe7ec24728af019d7247e089e71"
 dependencies = [
  "debugid",
  "memmap2",
@@ -7971,9 +8017,9 @@ dependencies = [
 
 [[package]]
 name = "symbolic-demangle"
-version = "12.13.4"
+version = "12.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d234917f7986498e7f62061438cee724bafb483fe84cfbe2486f68dce48240d7"
+checksum = "42bcacd080282a72e795864660b148392af7babd75691d5ae9a3b77e29c98c77"
 dependencies = [
  "cpp_demangle",
  "rustc-demangle",
@@ -8604,8 +8650,8 @@ checksum = "f68803492bf28ab40aeccaecc7021096bd256baf7ca77c3d425d89b35a7be4e4"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
+ "opentelemetry 0.23.0",
+ "opentelemetry_sdk 0.23.0",
  "smallvec",
  "tracing",
  "tracing-core",
@@ -8832,7 +8878,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0d2f179f8075b805a43a2a21728a46f0cc2921b3c58695b28fa8817e103cd9a"
 dependencies = [
  "anyhow",
- "cargo_metadata 0.19.1",
+ "cargo_metadata 0.19.2",
  "derive_builder",
  "regex",
  "rustc_version 0.4.1",

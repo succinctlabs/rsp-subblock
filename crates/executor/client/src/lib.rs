@@ -66,19 +66,6 @@ pub trait Variant {
     where
         DB: Database<Error: Into<ProviderError> + Display>;
 
-    fn execute_subblock<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-        start_idx: usize,
-        gas_limit: u64,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        Self::execute(executor_block_input, executor_difficulty, cache_db)
-    }
-
     fn validate_block_post_execution(
         block: &BlockWithSenders,
         chain_spec: &ChainSpec,
@@ -313,13 +300,18 @@ impl ClientExecutor {
                 let subblock_transactions: Vec<TransactionSigned> =
                     bincode::deserialize_from(&mut reader).unwrap();
 
+                println!("cycle-tracker-start: deserialize subblock public values");
+                println!("cycle-tracker-start: deserialize subblock output");
+
                 let mut aligned_vec = AlignedVec::<16>::with_capacity(public_value.len());
                 aligned_vec.extend_from_reader(&mut reader).unwrap();
                 let subblock_output: SubblockOutput =
                     rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
+                println!("cycle-tracker-end: deserialize subblock output");
 
                 println!("cycle-tracker-end: deserialize subblock public values");
 
+                println!("cycle-tracker-start: extend state");
                 // Check that the subblock's input state diff matches the cumulative state diff.
                 // This function also contains consistency checks between the cumulative state diff
                 // and the subblock output.
@@ -327,6 +319,7 @@ impl ClientExecutor {
 
                 // Also add this subblock's transaction body to the transaction body.
                 transaction_body.extend(subblock_transactions);
+                println!("cycle-tracker-end: extend state");
             }
         });
 
@@ -395,24 +388,6 @@ impl Variant for EthereumVariant {
         executor_block_input: &BlockWithSenders,
         executor_difficulty: U256,
         cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        EthExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Ethereum),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn execute_subblock<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-        start_idx: usize,
-        gas_limit: u64,
     ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
     where
         DB: Database<Error: Into<ProviderError> + Display>,
