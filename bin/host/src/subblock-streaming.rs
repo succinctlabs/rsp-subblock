@@ -5,10 +5,7 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
 use reth_primitives::B256;
-use rsp_client_executor::{
-    hash_transactions,
-    io::{AggregationInput, SubblockHostOutput, SubblockInput},
-};
+use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
@@ -30,7 +27,7 @@ use sp1_worker::{
 mod execute;
 
 mod cli;
-use cli::ProviderArgs;
+use cli::{upload_artifact, ProviderArgs};
 
 mod eth_proofs;
 
@@ -129,7 +126,7 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let mut proof = schedule_task(subblock_pk, agg_pk, client_input).await?;
+    let mut proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
     let block_hash = proof.public_values.read::<B256>();
 
     println!("block hash: {}", block_hash);
@@ -137,33 +134,19 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn upload_artifact<T: Serialize + Send + Sync>(
-    client: &ClusterClient,
-    name: &str,
-    data: T,
-    artifact_type: ArtifactType,
-) -> eyre::Result<Artifact> {
-    let artifact = client
-        .create_artifact_blocking(name, 0)
-        .map_err(|e| eyre::eyre!("Failed to create artifact: {}", e))?;
-    artifact
-        .upload_with_type(artifact_type, data)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to upload artifact: {}", e))?;
-
-    Ok(artifact)
-}
-
 async fn schedule_task(
     subblock_pk: SP1ProvingKey,
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
+    execute: bool,
 ) -> eyre::Result<SP1ProofWithPublicValues> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
     let cluster_client = ClusterClient::new();
     let mut subblock_input_artifacts: Vec<Artifact> =
         Vec::with_capacity(inputs.subblock_inputs.len());
+
+    let client = ProverClient::from_env();
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
 
@@ -176,8 +159,14 @@ async fn schedule_task(
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
         stdin.write_vec(input_state_diff.clone());
-        let artifact =
-            upload_artifact(&cluster_client, "subblock_input", stdin, ArtifactType::Stdin).await?;
+        let artifact_handle =
+            upload_artifact(&cluster_client, "subblock_input", &stdin, ArtifactType::Stdin);
+
+        if execute {
+            let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
+            println!("subblock {}: {}", i, report.total_instruction_count());
+        }
+        let artifact = artifact_handle.await?;
         subblock_input_artifacts.push(artifact);
     }
 
@@ -207,11 +196,20 @@ async fn schedule_task(
 
     // Create artifacts for the aggregation stuff.
     let agg_elf_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_elf", agg_elf, ArtifactType::Program).await?;
+        upload_artifact(&cluster_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
 
     let agg_stdin_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_stdin", aggregation_stdin, ArtifactType::Stdin)
+        upload_artifact(&cluster_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
             .await?;
+
+    if execute {
+        let (_public_values, report) = client
+            .execute(&agg_elf, &aggregation_stdin)
+            .deferred_proof_verification(false)
+            .run()
+            .unwrap();
+        println!("agg: {}", report.total_instruction_count());
+    }
 
     // Create an empty artifact for the output
     let output_artifact: Artifact = cluster_client
@@ -244,7 +242,7 @@ async fn schedule_task(
     println!("Task created: {}", task_id);
 
     cluster_client
-        .wait_tasks(&[task_id])
+        .wait_tasks(&[task_id.clone()])
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
@@ -252,6 +250,12 @@ async fn schedule_task(
         .download_proof(&cluster_client.http)
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+
+    println!("run again, this time setup is cached.");
+    cluster_client
+        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
     Ok(result)
 }
@@ -296,9 +300,6 @@ pub fn to_aggregation_stdin(
 
         current_public_values.write_all(&serialized).unwrap();
 
-        let sp1_pv = SP1PublicValues::from(&current_public_values);
-
-        println!("sp1_pv: {:?}", sp1_pv.hash());
         public_values.push(current_public_values);
     }
     stdin.write::<Vec<Vec<u8>>>(&public_values);

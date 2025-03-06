@@ -3,16 +3,24 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
 use reth_primitives::B256;
-use rsp_client_executor::io::{SubblockHostOutput, SubblockOutput};
+use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
+use sp1_sdk::{
+    include_elf, HashableKey, ProverClient, SP1Proof, SP1ProofWithPublicValues, SP1Stdin,
+};
+use sp1_worker::{
+    artifact::ArtifactType,
+    client::ClusterClient,
+    proto::{Artifact, TaskType},
+    ProofOptions,
+};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 mod cli;
-use cli::ProviderArgs;
+use cli::{upload_artifact, ProviderArgs};
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
@@ -98,8 +106,14 @@ async fn main() -> eyre::Result<()> {
     // Generate the proof.
     let client = ProverClient::from_env();
 
+    let cluster_client = ClusterClient::new();
+
     // Setup the proving key and verification key.
-    let (pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+
+    let elf_artifact =
+        upload_artifact(&cluster_client, "subblock_elf", subblock_pk.elf, ArtifactType::Program)
+            .await?;
 
     let mut public_values = Vec::new();
     let mut agg_stdin = SP1Stdin::new();
@@ -114,7 +128,7 @@ async fn main() -> eyre::Result<()> {
         stdin.write_vec(parent_state.clone());
         stdin.write_vec(input_state_diff.clone());
         // Generate the subblock proof.
-        let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
+        let proof = schedule_controller(elf_artifact.clone(), stdin, &cluster_client).await?;
 
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
@@ -128,17 +142,22 @@ async fn main() -> eyre::Result<()> {
 
     let (pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
+    let agg_elf_artifact =
+        upload_artifact(&cluster_client, "agg_elf", pk.elf, ArtifactType::Program).await?;
+
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
     agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     agg_stdin.write(&client_input.agg_input);
     agg_stdin.write_vec(client_input.agg_parent_state);
 
-    if args.execute {
-        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
-        println!("total instructions for agg: {}", execution_report.total_instruction_count());
-    }
-    let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
+    // if args.execute {
+    //     let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
+    //     println!("total instructions for agg: {}", execution_report.total_instruction_count());
+    // }
+    // let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
+    let mut proof =
+        schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client).await?;
     let block_hash = proof.public_values.read::<B256>();
     println!("Block hash: {}", block_hash);
 
@@ -165,4 +184,67 @@ fn try_load_input_from_cache(
     } else {
         None
     })
+}
+
+async fn schedule_controller(
+    elf_artifact: Artifact,
+    stdin: SP1Stdin,
+    cluster_client: &ClusterClient,
+) -> eyre::Result<SP1ProofWithPublicValues> {
+    let stdin_artifact: Artifact =
+        upload_artifact(cluster_client, "subblock_stdin", stdin, ArtifactType::Stdin).await?;
+
+    let proof_options = ProofOptions::subblock();
+    let proof_options_artifact: Artifact = upload_artifact(
+        cluster_client,
+        "subblock_proof_options",
+        proof_options,
+        ArtifactType::UnspecifiedArtifactType,
+    )
+    .await?;
+    // Create an empty artifact for the output
+    let output_artifact: Artifact =
+        cluster_client
+            .create_artifact_blocking("subblock_output", 0)
+            .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
+
+    let proof_id = "yuwen".to_string();
+
+    let input_ids = vec![elf_artifact.id, stdin_artifact.id, proof_options_artifact.id];
+
+    let task_id = cluster_client
+        .create_task(
+            TaskType::Sp1Controller,
+            &input_ids,
+            &[output_artifact.id.clone()],
+            proof_id,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create task: {}", e))?;
+
+    println!("Task created: {}", task_id);
+    cluster_client
+        .wait_tasks(&[task_id.clone()])
+        .await
+        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+
+    let result: SP1ProofWithPublicValues = output_artifact
+        .download_proof(&cluster_client.http)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+
+    println!("run again, this time setup is cached.");
+    cluster_client
+        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+
+    cluster_client
+        .wait_tasks(&[task_id])
+        .await
+        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+
+    Ok(result)
 }

@@ -66,6 +66,19 @@ pub trait Variant {
     where
         DB: Database<Error: Into<ProviderError> + Display>;
 
+    fn execute_subblock<DB>(
+        executor_block_input: &BlockWithSenders,
+        executor_difficulty: U256,
+        cache_db: DB,
+        start_idx: usize,
+        gas_limit: u64,
+    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
+    where
+        DB: Database<Error: Into<ProviderError> + Display>,
+    {
+        Self::execute(executor_block_input, executor_difficulty, cache_db)
+    }
+
     fn validate_block_post_execution(
         block: &BlockWithSenders,
         chain_spec: &ChainSpec,
@@ -382,6 +395,24 @@ impl Variant for EthereumVariant {
         executor_block_input: &BlockWithSenders,
         executor_difficulty: U256,
         cache_db: DB,
+    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
+    where
+        DB: Database<Error: Into<ProviderError> + Display>,
+    {
+        EthExecutorProvider::new(
+            Self::spec().into(),
+            CustomEvmConfig::from_variant(ChainVariant::Ethereum),
+        )
+        .executor(cache_db)
+        .execute((executor_block_input, executor_difficulty).into())
+    }
+
+    fn execute_subblock<DB>(
+        executor_block_input: &BlockWithSenders,
+        executor_difficulty: U256,
+        cache_db: DB,
+        start_idx: usize,
+        gas_limit: u64,
     ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
     where
         DB: Database<Error: Into<ProviderError> + Display>,

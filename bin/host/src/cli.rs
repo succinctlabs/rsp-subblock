@@ -1,6 +1,7 @@
 use alloy_provider::{network::AnyNetwork, Provider as _, ReqwestProvider};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use sp1_worker::{artifact::ArtifactType, client::ClusterClient, proto::Artifact};
 use url::Url;
 
 use rsp_client_executor::io::{AggregationInput, SubblockInput};
@@ -57,4 +58,21 @@ impl ProviderArgs {
 
         Ok(ProviderConfig { rpc_url, chain_id })
     }
+}
+
+pub async fn upload_artifact<T: Serialize + Send + Sync>(
+    client: &ClusterClient,
+    name: &str,
+    data: T,
+    artifact_type: ArtifactType,
+) -> eyre::Result<Artifact> {
+    let artifact = client
+        .create_artifact_blocking(name, 0)
+        .map_err(|e| eyre::eyre!("Failed to create artifact: {}", e))?;
+    artifact
+        .upload_with_type(artifact_type, data)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to upload artifact: {}", e))?;
+
+    Ok(artifact)
 }

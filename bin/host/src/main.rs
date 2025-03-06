@@ -1,14 +1,12 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
 use eth_proofs::EthProofsClient;
-use execute::process_execution_report;
-use reth_primitives::B256;
 use rsp_client_executor::{
     io::ClientExecutorInput, ChainVariant, CHAIN_ID_ETH_MAINNET, CHAIN_ID_LINEA_MAINNET,
     CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
 };
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_sdk::ProverClient;
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
