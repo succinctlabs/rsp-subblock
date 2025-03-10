@@ -343,7 +343,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let num_executed_transactions = subblock_output.receipts.len();
             let upper = num_transactions_completed + num_executed_transactions as u64;
-            let is_last_subblock = upper == subblock_input.body.len() as u64;
+            let is_last_subblock = upper == executor_block_input.body.len() as u64;
 
             tracing::info!(
                 "successfully executed subblock: num_transactions_completed={}, upper={}",
@@ -621,6 +621,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
         }
+
+        println!("subblock_input_diffs_1: {:?}", subblock_input_diffs[0]);
 
         let all_subblock_outputs = SubblockHostOutput {
             subblock_inputs,

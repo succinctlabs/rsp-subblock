@@ -12,11 +12,13 @@ use sp1_sdk::{
     include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
     SP1PublicValues, SP1Stdin, SP1VerifyingKey,
 };
-use std::io::Write;
 use std::path::PathBuf;
+use std::{hash::Hash, io::Write};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
+
+use sha2::{Digest, Sha256};
 
 use sp1_worker::{
     artifact::ArtifactType,
@@ -279,26 +281,15 @@ pub fn to_aggregation_stdin(
 
         let serialized =
             rkyv::to_bytes::<rkyv::rancor::BoxedError>(&subblock_host_output.subblock_outputs[i])
-                .expect("failed to serialize state diff")
+                .expect("failed to serialize subblock output")
                 .to_vec();
 
-        // for _ in 0..100 {
-        //     let tmp = serialized.clone();
-
-        //     let deserialized_2 =
-        //         rkyv::from_bytes::<SubblockOutput, rkyv::rancor::BoxedError>(&serialized).unwrap();
-
-        //     assert_eq!(subblock_host_output.subblock_outputs[i], deserialized_2);
-        //     serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&deserialized_2)
-        //         .expect("failed to serialize state diff")
-        //         .to_vec();
-        //     assert_eq!(tmp, serialized, "inconsistent serialized representation");
-        //     println!("success");
-        // }
-
-        // println!("yuwen_serialized: {:?}", serialized);
-
         current_public_values.write_all(&serialized).unwrap();
+        // let mut hasher = Sha256::new();
+        // hasher.update(current_public_values.as_slice());
+        // let hash = hasher.finalize();
+
+        // println!("current_public_values: {:?}", hash);
 
         public_values.push(current_public_values);
     }

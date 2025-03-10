@@ -111,9 +111,13 @@ async fn main() -> eyre::Result<()> {
     // Setup the proving key and verification key.
     let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let elf_artifact =
-        upload_artifact(&cluster_client, "subblock_elf", subblock_pk.elf, ArtifactType::Program)
-            .await?;
+    let elf_artifact = upload_artifact(
+        &cluster_client,
+        "subblock_elf",
+        subblock_pk.elf.clone(),
+        ArtifactType::Program,
+    )
+    .await?;
 
     let mut public_values = Vec::new();
     let mut agg_stdin = SP1Stdin::new();
@@ -127,13 +131,24 @@ async fn main() -> eyre::Result<()> {
         stdin.write(&input);
         stdin.write_vec(parent_state.clone());
         stdin.write_vec(input_state_diff.clone());
+
+        if args.execute {
+            let (_public_values, execution_report) =
+                client.execute(&subblock_pk.elf, &stdin).run().unwrap();
+            println!(
+                "total instructions for subblock: {}",
+                execution_report.total_instruction_count()
+            );
+        }
         // Generate the subblock proof.
-        let proof = schedule_controller(elf_artifact.clone(), stdin, &cluster_client).await?;
+        let proof =
+            schedule_controller(elf_artifact.clone(), stdin, &cluster_client, args.execute).await?;
 
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 
         println!("public values: {:?}", proof.public_values.hash());
+        // println!("is_last_subblock: {}", input.is_last_subblock);
 
         let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
         agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
@@ -143,7 +158,7 @@ async fn main() -> eyre::Result<()> {
     let (pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let agg_elf_artifact =
-        upload_artifact(&cluster_client, "agg_elf", pk.elf, ArtifactType::Program).await?;
+        upload_artifact(&cluster_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
@@ -156,8 +171,16 @@ async fn main() -> eyre::Result<()> {
     //     println!("total instructions for agg: {}", execution_report.total_instruction_count());
     // }
     // let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
+
+    let client = ProverClient::from_env();
+    if args.execute {
+        let (_public_values, execution_report) =
+            client.execute(&pk.elf, &agg_stdin).deferred_proof_verification(false).run().unwrap();
+        println!("total instructions for agg: {}", execution_report.total_instruction_count());
+    }
     let mut proof =
-        schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client).await?;
+        schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client, args.execute)
+            .await?;
     let block_hash = proof.public_values.read::<B256>();
     println!("Block hash: {}", block_hash);
 
@@ -190,6 +213,7 @@ async fn schedule_controller(
     elf_artifact: Artifact,
     stdin: SP1Stdin,
     cluster_client: &ClusterClient,
+    _execute: bool,
 ) -> eyre::Result<SP1ProofWithPublicValues> {
     let stdin_artifact: Artifact =
         upload_artifact(cluster_client, "subblock_stdin", stdin, ArtifactType::Stdin).await?;
@@ -235,16 +259,16 @@ async fn schedule_controller(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // println!("run again, this time setup is cached.");
+    // cluster_client
+    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
-    cluster_client
-        .wait_tasks(&[task_id])
-        .await
-        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+    // cluster_client
+    //     .wait_tasks(&[task_id])
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
     Ok(result)
 }

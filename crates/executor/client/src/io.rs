@@ -33,15 +33,12 @@ pub struct ClientExecutorInput {
     pub bytecodes: Vec<Bytecode>,
 }
 
+/// Consider the `parent_state` and the `input_state_diff` as part of this struct. I can't put them
+/// in the same struct though because that messes with the bincode/rkyv alignment stuff.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    // /// The parent state as rkyv bytes.
-    // pub parent_state_bytes: Vec<u8>,
-    // /// The current state diff as of the start of the subblock.
-    // /// Represented as rkyv bytes.
-    // pub state_diff_bytes: Vec<u8>,
     /// The blockhashes used by the subblock
     /// This can be shrunk, but it's not a big deal
     pub block_hashes: HashMap<u64, B256>,
@@ -212,8 +209,17 @@ impl SubblockOutput {
         };
 
         // Make sure that the current output state diff lines up with the next input state diff.
-        assert_eq!(self.output_state_diff, other.input_state_diff);
-        self.output_state_diff.extend(other.output_state_diff);
+        // self.input_state_diff.extend(self.output_state_diff.clone());
+        // assert_eq!(
+        //     self.input_state_diff, other.input_state_diff,
+        //     "expected self.input_state_diff + self.output_state_diff = other.input_state_diff"
+        // );
+        assert_eq!(
+            self.output_state_diff.clone().into_sorted(),
+            other.input_state_diff.into_sorted(),
+            "expected self.output_state_diff = other.input_state_diff"
+        );
+        self.output_state_diff.extend(other.output_state_diff.clone());
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
         let mut receipts = other.receipts;
         receipts.iter_mut().for_each(|receipt| {
@@ -226,6 +232,7 @@ impl SubblockOutput {
         if self.parent_state_root != B256::ZERO {
             assert_eq!(self.parent_state_root, other.parent_state_root);
         }
+        println!("Successfully extended subblock output");
         // self.requests.extend(other.requests);
     }
 }

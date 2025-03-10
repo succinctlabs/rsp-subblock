@@ -295,12 +295,11 @@ impl ClientExecutor {
             for public_value in public_values {
                 let public_values_digest = Sha256::digest(&public_value);
                 sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
-                println!("cycle-tracker-start: deserialize subblock public values");
+                println!("cycle-tracker-start: deserialize subblock transactions");
                 let mut reader = Cursor::new(&public_value);
                 let subblock_transactions: Vec<TransactionSigned> =
                     bincode::deserialize_from(&mut reader).unwrap();
 
-                println!("cycle-tracker-start: deserialize subblock public values");
                 println!("cycle-tracker-start: deserialize subblock output");
 
                 let mut aligned_vec = AlignedVec::<16>::with_capacity(public_value.len());
@@ -308,8 +307,6 @@ impl ClientExecutor {
                 let subblock_output: SubblockOutput =
                     rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
                 println!("cycle-tracker-end: deserialize subblock output");
-
-                println!("cycle-tracker-end: deserialize subblock public values");
 
                 println!("cycle-tracker-start: extend state");
                 // Check that the subblock's input state diff matches the cumulative state diff.

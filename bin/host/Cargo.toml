@@ -33,6 +33,7 @@ base64 = "0.22.1"
 hex = "0.4.3"
 chrono = "0.4.39"
 rkyv = "0.8.10"
+sha2 = "0.10.8"
 
 sp1-worker = { git = "https://github.com/succinctlabs/sp1-prover-service.git", branch = "yuwen/redis-artifacts"}
 # sp1-worker = { git = "https://github.com/succinctlabs/sp1-prover-service.git", branch = "yuwen/aggregator"}
