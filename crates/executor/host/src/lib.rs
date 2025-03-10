@@ -608,15 +608,20 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let parent_state_bytes =
             rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
-        let mut cumulative_state_diff = HashedPostState::default();
+        let mut big_state = parent_state.clone();
         let mut subblock_input_diffs = Vec::new();
         for i in 0..subblock_inputs.len() {
+            // First, apply this subblock's state diff to the big_state.
+
+            // Second, prune the big_state to only the addresses touched between the previous subblock and this subblock.
+
+            //
+
             let subblock_input = &mut subblock_inputs[i];
             let state_diff_bytes =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
             subblock_input_diffs.push(state_diff_bytes.to_vec());
             subblock_outputs[i].input_state_diff = cumulative_state_diff.clone();
-            // subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
 
             cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
@@ -625,7 +630,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let all_subblock_outputs = SubblockHostOutput {
             subblock_inputs,
             subblock_parent_states,
-            subblock_input_diffs,
             subblock_outputs,
             agg_input: aggregation_input,
             agg_parent_state: parent_state_bytes,

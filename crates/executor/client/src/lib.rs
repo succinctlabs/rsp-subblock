@@ -213,8 +213,7 @@ impl ClientExecutor {
     pub fn execute_subblock<V>(
         &self,
         input: SubblockInput,
-        parent_state: EthereumState,
-        input_state_diff: HashedPostState,
+        input_state: &mut EthereumState,
     ) -> Result<SubblockOutput, ClientError>
     where
         V: Variant,
@@ -222,15 +221,14 @@ impl ClientExecutor {
         // Initialize the database.
         println!("cycle-tracker-start: initialize db");
         // First deserialize the parent state, and calculate the parent state root.
-        let parent_state_root = parent_state.state_root();
+        let input_state_root = input_state.state_root();
 
         println!("cycle-tracker-start: construct buffered trie db");
         // Finally, construct the database.
         // TODO: verify the parent block hashes????
         let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-        let trie_db = TrieDB::new(&parent_state, input.block_hashes, bytecode_by_hash);
-        let buffered_trie_db = BufferedTrieDB::new(trie_db, &input_state_diff);
-        let wrap_ref = WrapDatabaseRef(buffered_trie_db);
+        let trie_db = TrieDB::new(&input_state, input.block_hashes, bytecode_by_hash);
+        let wrap_ref = WrapDatabaseRef(trie_db);
         println!("cycle-tracker-end: construct buffered trie db");
 
         println!("cycle-tracker-end: initialize db");
@@ -269,12 +267,17 @@ impl ClientExecutor {
                 vec![executor_output.requests.into()],
             );
 
+            let hash_state = executor_outcome.hash_state_slow();
+
+            // Get the output state root by applying the diff to the input state.
+            input_state.update(&hash_state);
+            let output_state_root = input_state.state_root();
+
             SubblockOutput {
-                output_state_diff: executor_outcome.hash_state_slow(),
+                output_state_root,
                 logs_bloom,
                 receipts,
-                input_state_diff,
-                parent_state_root,
+                input_state_root,
                 // requests,
             }
         });
@@ -340,12 +343,8 @@ impl ClientExecutor {
             .expect("failed to validate subblock aggregation")
         });
 
-        let mutated_state = profile!("update parent state", {
-            parent_state.update(&cumulative_state_diff.output_state_diff);
-            parent_state
-        });
-        let state_root = profile!("verify state root", { mutated_state.state_root() });
-
+        // The final state root of the entire block is the cumulative output state root.
+        let state_root = cumulative_state_diff.output_state_root;
         if state_root != aggregation_input.current_block.state_root {
             panic!(
                 "mismatched state root: {state_root} != {:?}",

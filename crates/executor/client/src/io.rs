@@ -86,7 +86,6 @@ pub struct SubblockInput {
 pub struct SubblockHostOutput {
     pub subblock_inputs: Vec<SubblockInput>,
     pub subblock_parent_states: Vec<Vec<u8>>,
-    pub subblock_input_diffs: Vec<Vec<u8>>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
     pub agg_parent_state: Vec<u8>,
@@ -190,15 +189,13 @@ pub struct SubblockOutput {
     /// The state diff from just this subblock.
     ///
     /// This will be applied to the `input_state_diff` in the aggregation program.
-    pub output_state_diff: HashedPostState,
+    pub output_state_root: B256,
     /// The logs bloom.
     pub logs_bloom: Bloom,
     /// The transaction receipts.
     pub receipts: Vec<Receipt>,
-    /// The parent state root.
-    pub parent_state_root: B256,
     /// Input state diff.
-    pub input_state_diff: HashedPostState,
+    pub input_state_root: B256,
     // pub requests: Vec<Request>, // This is only needed for pectra.
 }
 
@@ -206,14 +203,15 @@ impl SubblockOutput {
     /// This is intended to ONLY be called by consecutive subblocks of the same block.
     /// self is the current cumulative subblock output, and other is the new subblock output.
     pub fn extend(&mut self, other: Self) {
+        // Get the gas used so far, and add it to all of the new receipts.
         let cumulative_gas_used = match self.receipts.last() {
             Some(receipt) => receipt.cumulative_gas_used,
             None => 0,
         };
 
-        // Make sure that the current output state diff lines up with the next input state diff.
-        assert_eq!(self.output_state_diff, other.input_state_diff);
-        self.output_state_diff.extend(other.output_state_diff);
+        // Make sure that the current output state root lines up with the next input state root.
+        assert_eq!(self.output_state_root, other.input_state_root);
+        self.output_state_root = other.output_state_root;
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
         let mut receipts = other.receipts;
         receipts.iter_mut().for_each(|receipt| {
@@ -221,11 +219,6 @@ impl SubblockOutput {
         });
         self.receipts.extend(receipts);
 
-        // Ensure that both parent state roots are the same.
-        // TODO: initialize the first parent state root. Maybe an option or something.
-        if self.parent_state_root != B256::ZERO {
-            assert_eq!(self.parent_state_root, other.parent_state_root);
-        }
         // self.requests.extend(other.requests);
     }
 }
