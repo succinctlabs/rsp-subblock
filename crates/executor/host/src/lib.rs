@@ -310,9 +310,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let executor_difficulty = current_block.header.difficulty;
 
-        let mut all_executor_outcomes = ExecutionOutcome::default();
+        let mut cumulative_executor_outcomes = ExecutionOutcome::default();
+        let mut cumulative_state_requests = HashMap::new();
 
-        let mut all_state_requests = HashMap::new();
+        let mut all_state_requests = Vec::new();
 
         let mut num_transactions_completed: u64 = 0;
 
@@ -387,41 +388,16 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             };
             subblock_outputs.push(subblock_output);
 
-            // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
-            all_executor_outcomes.extend(executor_outcome);
+            // Accumulate this subblock's `ExecutionOutcome` into `cumulative_executor_outcomes`.
+            cumulative_executor_outcomes.extend(executor_outcome);
 
             // Construct a sparse parent state from the subblock's state requests. The subblock will
             // read from this sparse trie.
             let subblock_state_requests = rpc_db.get_state_requests();
-            let mut before_storage_proofs = Vec::new();
-            for (address, used_keys) in subblock_state_requests.iter() {
-                let keys = used_keys
-                    .iter()
-                    .map(|key| B256::from(*key))
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
+            // Merge the state requests from the subblock into `cumulative_state_requests`.
+            merge_state_requests(&mut cumulative_state_requests, &subblock_state_requests);
 
-                let storage_proof = self
-                    .provider
-                    .get_proof(*address, keys)
-                    .block_id((block_number - 1).into())
-                    .await?;
-                before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
-            }
-
-            let state = EthereumState::from_transition_proofs(
-                previous_block.state_root,
-                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
-                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
-            )?;
-
-            let parent_state_bytes =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&state).unwrap().to_vec();
-            subblock_parent_states.push(parent_state_bytes);
-
-            // Merge the state requests from the subblock into `all_state_requests`.
-            merge_state_requests(&mut all_state_requests, &subblock_state_requests);
+            all_state_requests.push(subblock_state_requests);
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
@@ -458,8 +434,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut before_storage_proofs = Vec::new();
         let mut after_storage_proofs = Vec::new();
 
-        for (address, used_keys) in all_state_requests.iter() {
-            let modified_keys = all_executor_outcomes
+        for (address, used_keys) in cumulative_state_requests.iter() {
+            let modified_keys = cumulative_executor_outcomes
                 .state()
                 .state
                 .get(address)
@@ -501,7 +477,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         // Update the parent state with the cumulative state diffs from all subblocks.
         let mut mutated_state = parent_state.clone();
-        mutated_state.update(&all_executor_outcomes.hash_state_slow());
+        mutated_state.update(&cumulative_executor_outcomes.hash_state_slow());
 
         // Verify the state root.
         let state_root = mutated_state.state_root();
@@ -571,12 +547,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let mut big_state = parent_state.clone();
         for i in 0..subblock_inputs.len() {
-            // TODO: prune the big_state to only the addresses touched between the previous subblock and this subblock.
             // First, apply this subblock's state diff to the big_state.
             let input_root = big_state.state_root();
+            // TODO: prune the big_state to only the addresses touched between the previous subblock and this subblock.
             let mut subblock_parent_state = big_state.clone();
-            subblock_parent_states[i] =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&big_state).unwrap().to_vec();
+            subblock_parent_state.prune(&all_state_requests[i]);
+            subblock_parent_states
+                .push(rkyv::to_bytes::<rkyv::rancor::Error>(&big_state).unwrap().to_vec());
             let state_diff = &state_diffs[i];
             big_state.update(state_diff);
             let output_root = big_state.state_root();

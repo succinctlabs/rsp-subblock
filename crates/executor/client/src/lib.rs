@@ -290,7 +290,7 @@ impl ClientExecutor {
         public_values: Vec<Vec<u8>>,
         vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
-        mut parent_state: EthereumState,
+        parent_state: EthereumState,
     ) -> Result<Header, ClientError> {
         // TODO: pass in the parent state root as plaintext should be fine.
         let mut cumulative_state_diff =
