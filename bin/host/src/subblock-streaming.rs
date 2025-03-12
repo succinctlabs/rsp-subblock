@@ -153,12 +153,10 @@ async fn schedule_task(
     for i in 0..inputs.subblock_inputs.len() {
         let input = &inputs.subblock_inputs[i];
         let parent_state = &inputs.subblock_parent_states[i];
-        let input_state_diff = &inputs.subblock_input_diffs[i];
 
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
-        stdin.write_vec(input_state_diff.clone());
         let artifact_handle =
             upload_artifact(&cluster_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
@@ -251,11 +249,11 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // println!("run again, this time setup is cached.");
+    // cluster_client
+    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
     Ok(result)
 }

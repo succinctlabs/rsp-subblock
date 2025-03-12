@@ -112,7 +112,7 @@ async fn main() -> eyre::Result<()> {
     let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
     let elf_artifact =
-        upload_artifact(&cluster_client, "subblock_elf", subblock_pk.elf, ArtifactType::Program)
+        upload_artifact(&cluster_client, "subblock_elf", &subblock_pk.elf, ArtifactType::Program)
             .await?;
 
     let mut public_values = Vec::new();
@@ -120,13 +120,20 @@ async fn main() -> eyre::Result<()> {
     for i in 0..client_input.subblock_inputs.len() {
         let input = &client_input.subblock_inputs[i];
         let parent_state = &client_input.subblock_parent_states[i];
-        let input_state_diff = &client_input.subblock_input_diffs[i];
 
         // Execute the block inside the zkVM.
         let mut stdin = SP1Stdin::new();
         stdin.write(&input);
         stdin.write_vec(parent_state.clone());
-        stdin.write_vec(input_state_diff.clone());
+
+        if args.execute {
+            let (_public_values, execution_report) =
+                client.execute(&subblock_pk.elf, &stdin).run().unwrap();
+            println!(
+                "total instructions for subblock: {}",
+                execution_report.total_instruction_count()
+            );
+        }
         // Generate the subblock proof.
         let proof = schedule_controller(elf_artifact.clone(), stdin, &cluster_client).await?;
 
@@ -143,7 +150,7 @@ async fn main() -> eyre::Result<()> {
     let (pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let agg_elf_artifact =
-        upload_artifact(&cluster_client, "agg_elf", pk.elf, ArtifactType::Program).await?;
+        upload_artifact(&cluster_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
@@ -151,11 +158,11 @@ async fn main() -> eyre::Result<()> {
     agg_stdin.write(&client_input.agg_input);
     agg_stdin.write_vec(client_input.agg_parent_state);
 
-    // if args.execute {
-    //     let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
-    //     println!("total instructions for agg: {}", execution_report.total_instruction_count());
-    // }
-    // let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
+    if args.execute {
+        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
+        println!("total instructions for agg: {}", execution_report.total_instruction_count());
+    }
+
     let mut proof =
         schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client).await?;
     let block_hash = proof.public_values.read::<B256>();
@@ -235,16 +242,16 @@ async fn schedule_controller(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // println!("run again, this time setup is cached.");
+    // cluster_client
+    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
-    cluster_client
-        .wait_tasks(&[task_id])
-        .await
-        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+    // cluster_client
+    //     .wait_tasks(&[task_id])
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
     Ok(result)
 }

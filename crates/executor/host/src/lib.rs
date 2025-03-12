@@ -1,6 +1,5 @@
 mod error;
 pub use error::Error as HostError;
-use reth_trie::HashedPostState;
 use std::{
     collections::{BTreeSet, HashMap},
     marker::PhantomData,
@@ -10,11 +9,12 @@ use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
-use revm::db::CacheDB;
+use revm::db::{CacheDB, WrapDatabaseRef};
 use revm_primitives::Address;
 use rsp_client_executor::{
     io::{
         AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
+        TrieDB,
     },
     ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
 };
@@ -322,6 +322,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut subblock_outputs = Vec::new();
         let mut subblock_parent_states = Vec::new();
 
+        let mut state_diffs = Vec::new();
+
         while current_block.body.len() as u64 > num_transactions_completed {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
@@ -343,7 +345,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let num_executed_transactions = subblock_output.receipts.len();
             let upper = num_transactions_completed + num_executed_transactions as u64;
-            let is_last_subblock = upper == subblock_input.body.len() as u64;
+            let is_last_subblock = upper == current_block.body.len() as u64;
 
             tracing::info!(
                 "successfully executed subblock: num_transactions_completed={}, upper={}",
@@ -375,12 +377,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             // Save the subblock's `HashedPostState` for debugging.
             let target_post_state = executor_outcome.hash_state_slow();
 
+            state_diffs.push(target_post_state);
+
             let subblock_output = SubblockOutput {
                 receipts,
                 logs_bloom,
-                output_state_diff: target_post_state.clone(),
-                parent_state_root: previous_block.state_root,
-                input_state_diff: all_executor_outcomes.hash_state_slow(),
+                output_state_root: B256::default(),
+                input_state_root: B256::default(),
             };
             subblock_outputs.push(subblock_output);
 
@@ -422,8 +425,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                // parent_state_bytes,
-                // state_diff_bytes: Vec::new(),
                 block_hashes: HashMap::new(),
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
@@ -434,46 +435,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             subblock_input.current_block.body = subblock_input.current_block.body
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
-
-            #[cfg(debug_assertions)]
-            {
-                // // Reconstruct the subblock input exactly as it would be in the client.
-                // let debug_subblock_input = subblock_input.clone();
-                // let mut input = debug_subblock_input
-                //     .current_block
-                //     .with_recovered_senders()
-                //     .expect("failed to recover senders");
-                // input.is_first_subblock = subblock_input.is_first_subblock;
-                // input.is_last_subblock = subblock_input.is_last_subblock;
-
-                // tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
-                // tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
-                // let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
-                // let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
-                // let receipts = debug_execution_output.receipts.clone();
-                // let outcome = ExecutionOutcome::new(
-                //     debug_execution_output.state,
-                //     Receipts::from(debug_execution_output.receipts),
-                //     current_block.header.number,
-                //     vec![debug_execution_output.requests.into()],
-                // );
-
-                // let mut logs_bloom = Bloom::default();
-                // receipts.iter().for_each(|r| {
-                //     logs_bloom.accrue_bloom(&r.bloom_slow());
-                // });
-                // let debug_subblock_output =
-                //     SubblockOutput { receipts, logs_bloom, state_diff: outcome.hash_state_slow() };
-
-                // tracing::info!(
-                //     "Is the debug subblock output equal to the constructed subblock output? {:?}",
-                //     debug_subblock_output == *subblock_outputs.last().unwrap()
-                // );
-                // tracing::info!(
-                //     "Does the reconstructed subblock output match the target post state? {:?}",
-                //     outcome.hash_state_slow() == target_post_state
-                // );
-            }
 
             // Advance subblock
             num_transactions_completed = upper;
@@ -609,22 +570,75 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
         let mut big_state = parent_state.clone();
-        let mut subblock_input_diffs = Vec::new();
         for i in 0..subblock_inputs.len() {
+            // TODO: prune the big_state to only the addresses touched between the previous subblock and this subblock.
             // First, apply this subblock's state diff to the big_state.
+            let input_root = big_state.state_root();
+            let mut subblock_parent_state = big_state.clone();
+            subblock_parent_states[i] =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&big_state).unwrap().to_vec();
+            let state_diff = &state_diffs[i];
+            big_state.update(state_diff);
+            let output_root = big_state.state_root();
 
-            // Second, prune the big_state to only the addresses touched between the previous subblock and this subblock.
-
-            //
+            subblock_outputs[i].input_state_root = input_root;
+            subblock_outputs[i].output_state_root = output_root;
 
             let subblock_input = &mut subblock_inputs[i];
-            let state_diff_bytes =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
-            subblock_input_diffs.push(state_diff_bytes.to_vec());
-            subblock_outputs[i].input_state_diff = cumulative_state_diff.clone();
             subblock_input.block_hashes = block_hashes.clone();
 
-            cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
+            #[cfg(debug_assertions)]
+            {
+                // Reconstruct the subblock input exactly as it would be in the client.
+                let debug_subblock_input = subblock_input.clone();
+                let mut input = debug_subblock_input
+                    .current_block
+                    .with_recovered_senders()
+                    .expect("failed to recover senders");
+                input.is_first_subblock = subblock_input.is_first_subblock;
+                input.is_last_subblock = subblock_input.is_last_subblock;
+
+                tracing::info!("is first subblock: {:?}", input.is_first_subblock);
+                tracing::info!("is last subblock: {:?}", input.is_last_subblock);
+                let bytecode_by_hash =
+                    subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+                let trie_db = TrieDB::new(
+                    &subblock_parent_state,
+                    subblock_input.block_hashes.clone(),
+                    bytecode_by_hash,
+                );
+                let wrap_ref = WrapDatabaseRef(trie_db);
+                let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
+                let receipts = debug_execution_output.receipts.clone();
+                let outcome = ExecutionOutcome::new(
+                    debug_execution_output.state,
+                    Receipts::from(debug_execution_output.receipts),
+                    current_block.header.number,
+                    vec![debug_execution_output.requests.into()],
+                );
+
+                let mut logs_bloom = Bloom::default();
+                receipts.iter().for_each(|r| {
+                    logs_bloom.accrue_bloom(&r.bloom_slow());
+                });
+                let old_state_root = subblock_parent_state.state_root();
+                subblock_parent_state.update(&outcome.hash_state_slow());
+                let debug_subblock_output = SubblockOutput {
+                    receipts,
+                    logs_bloom,
+                    output_state_root: subblock_parent_state.state_root(),
+                    input_state_root: old_state_root,
+                };
+
+                tracing::info!(
+                    "Is the debug subblock output equal to the constructed subblock output? {:?}",
+                    debug_subblock_output == subblock_outputs[i]
+                );
+                tracing::info!(
+                    "Does the reconstructed subblock output match the target post state? {:?}",
+                    outcome.hash_state_slow() == state_diffs[i]
+                );
+            }
         }
 
         let all_subblock_outputs = SubblockHostOutput {
