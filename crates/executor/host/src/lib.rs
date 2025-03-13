@@ -10,7 +10,7 @@ use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::{CacheDB, WrapDatabaseRef};
-use revm_primitives::Address;
+use revm_primitives::{keccak256, Address};
 use rsp_client_executor::{
     io::{
         AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
@@ -314,6 +314,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut cumulative_state_requests = HashMap::new();
 
         let mut all_state_requests = Vec::new();
+        let mut all_executor_outcomes = Vec::new();
 
         let mut num_transactions_completed: u64 = 0;
 
@@ -374,6 +375,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 current_block.header.number,
                 vec![subblock_output.requests.into()],
             );
+
+            all_executor_outcomes.push(executor_outcome.clone());
 
             // Save the subblock's `HashedPostState` for debugging.
             let target_post_state = executor_outcome.hash_state_slow();
@@ -475,9 +478,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
         )?;
 
+        let cumulative_state_diffs = cumulative_executor_outcomes.hash_state_slow();
+
         // Update the parent state with the cumulative state diffs from all subblocks.
         let mut mutated_state = parent_state.clone();
-        mutated_state.update(&cumulative_executor_outcomes.hash_state_slow());
+        mutated_state.update(&cumulative_state_diffs);
 
         // Verify the state root.
         let state_root = mutated_state.state_root();
@@ -536,9 +541,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let aggregation_input = AggregationInput {
             current_block: V::pre_process_block(&current_block),
             ancestor_headers,
-            // parent_state_bytes: rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state)
-            //     .unwrap()
-            //     .to_vec(),
             bytecodes: rpc_db.get_bytecodes(),
         };
 
@@ -547,16 +549,53 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let mut big_state = parent_state.clone();
         for i in 0..subblock_inputs.len() {
-            // First, apply this subblock's state diff to the big_state.
             let input_root = big_state.state_root();
-            // TODO: prune the big_state to only the addresses touched between the previous subblock and this subblock.
+            // Get the touched addresses / storage slots in this subblock.
+            let mut touched_state = HashMap::new();
+            for (address, used_keys) in all_state_requests[i].iter() {
+                let modified_keys = all_executor_outcomes[i]
+                    .state()
+                    .state
+                    .get(address)
+                    .map(|account| {
+                        account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .chain(modified_keys.clone().into_iter())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(keccak256)
+                    .collect::<Vec<_>>();
+
+                // println!("touched state: {:?}", touched_state);
+
+                touched_state.insert(keccak256(address), keys);
+            }
+
             let mut subblock_parent_state = big_state.clone();
-            subblock_parent_state.prune(&all_state_requests[i]);
-            subblock_parent_states
-                .push(rkyv::to_bytes::<rkyv::rancor::Error>(&big_state).unwrap().to_vec());
-            let state_diff = &state_diffs[i];
-            big_state.update(state_diff);
+            let prev_root = subblock_parent_state.state_root();
+            subblock_parent_state.prune(&touched_state);
+            subblock_parent_state.state_trie.invalidate_ref_cache();
+            let new_root = subblock_parent_state.state_root();
+            assert_eq!(prev_root, new_root);
+            subblock_parent_states.push(
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
+            );
+            big_state.update(&state_diffs[i]);
             let output_root = big_state.state_root();
+            #[cfg(debug_assertions)]
+            {
+                let mut debug_subblock_parent_state = subblock_parent_state.clone();
+                debug_subblock_parent_state.update(&state_diffs[i]);
+                let pruned_output_root = debug_subblock_parent_state.state_root();
+                assert_eq!(pruned_output_root, output_root);
+            }
 
             subblock_outputs[i].input_state_root = input_root;
             subblock_outputs[i].output_state_root = output_root;
@@ -607,14 +646,26 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                     input_state_root: old_state_root,
                 };
 
-                tracing::info!(
-                    "Is the debug subblock output equal to the constructed subblock output? {:?}",
-                    debug_subblock_output == subblock_outputs[i]
-                );
-                tracing::info!(
-                    "Does the reconstructed subblock output match the target post state? {:?}",
-                    outcome.hash_state_slow() == state_diffs[i]
-                );
+                if debug_subblock_output != subblock_outputs[i] {
+                    tracing::info!(
+                        "output state root: {:?} {:?}",
+                        debug_subblock_output.output_state_root,
+                        subblock_outputs[i].output_state_root
+                    );
+                    tracing::info!(
+                        "input state root: {:?} {:?}",
+                        debug_subblock_output.input_state_root,
+                        subblock_outputs[i].input_state_root
+                    );
+                }
+
+                if outcome.hash_state_slow() != state_diffs[i] {
+                    tracing::info!(
+                        "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
+                        outcome.hash_state_slow().into_sorted().display(),
+                        state_diffs[i].clone().into_sorted().display()
+                    );
+                }
             }
         }
 

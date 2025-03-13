@@ -30,6 +30,7 @@ use core::{
 };
 use reth_trie::AccountProof;
 use revm::primitives::HashMap;
+use std::collections::HashSet;
 
 use rlp::{Decodable, DecoderError, Prototype, Rlp};
 use serde::{Deserialize, Serialize};
@@ -565,6 +566,55 @@ impl MptNode {
         }
     }
 
+    #[inline]
+    pub fn get_with_touched(
+        &self,
+        key: &[u8],
+    ) -> Result<(Option<&[u8]>, Vec<MptNodeReference>), Error> {
+        self.get_internal_with_touched(&to_nibs(key))
+    }
+
+    fn get_internal_with_touched(
+        &self,
+        key_nibs: &[u8],
+    ) -> Result<(Option<&[u8]>, Vec<MptNodeReference>), Error> {
+        let my_reference = self.reference();
+        match &self.data {
+            MptNodeData::Null => Ok((None, vec![my_reference])),
+            MptNodeData::Branch(nodes) => {
+                if let Some((i, tail)) = key_nibs.split_first() {
+                    match nodes[*i as usize] {
+                        Some(ref node) => {
+                            let (val, mut result) = node.get_internal_with_touched(tail)?;
+                            result.push(my_reference);
+                            Ok((val, result))
+                        }
+                        None => Ok((None, vec![my_reference])),
+                    }
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Leaf(prefix, value) => {
+                if prefix_nibs(prefix) == key_nibs {
+                    Ok((Some(value), vec![my_reference]))
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Extension(prefix, node) => {
+                if let Some(tail) = key_nibs.strip_prefix(prefix_nibs(prefix).as_slice()) {
+                    let (val, mut result) = node.get_internal_with_touched(tail)?;
+                    result.push(my_reference);
+                    Ok((val, result))
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Digest(digest) => Err(Error::NodeNotResolved(*digest)),
+        }
+    }
+
     /// Removes a key from the trie.
     ///
     /// This method attempts to remove a key-value pair from the trie. If the key is
@@ -678,6 +728,35 @@ impl MptNode {
 
         self.invalidate_ref_cache();
         Ok(true)
+    }
+
+    pub fn prune_unmarked_nodes(&mut self, touched_refs: &HashSet<MptNodeReference>) {
+        if self.is_empty() {
+            return;
+        }
+
+        if !touched_refs.contains(&self.reference()) {
+            self.data = MptNodeData::Digest(self.hash());
+            return;
+        }
+
+        match &mut self.data {
+            MptNodeData::Branch(children) => {
+                for child in children {
+                    match child {
+                        Some(ref mut node) => {
+                            node.prune_unmarked_nodes(touched_refs);
+                        }
+                        None => {}
+                    }
+                }
+            }
+            MptNodeData::Extension(_, child) => {
+                child.prune_unmarked_nodes(touched_refs);
+            }
+            // No recursive pruning necessary for leaves, digests, or nulls
+            MptNodeData::Leaf(_, _) | MptNodeData::Digest(_) | MptNodeData::Null => {}
+        }
     }
 
     /// Inserts a key-value pair into the trie.
@@ -816,7 +895,7 @@ impl MptNode {
         Ok(true)
     }
 
-    fn invalidate_ref_cache(&mut self) {
+    pub fn invalidate_ref_cache(&mut self) {
         self.cached_reference.borrow_mut().take();
     }
 
@@ -1432,6 +1511,67 @@ mod tests {
     }
 
     #[test]
+    pub fn test_prune() {
+        let mut trie = MptNode::default();
+        let vals = vec![
+            ("painting", "place"),
+            ("guest", "ship"),
+            ("mud", "leave"),
+            ("paper", "call"),
+            ("gate", "boast"),
+            ("tongue", "gain"),
+            ("baseball", "wait"),
+            ("tale", "lie"),
+            ("mood", "cope"),
+            ("menu", "fear"),
+        ];
+
+        let touched_idx = [0, 7];
+        let touched: Vec<_> = vals
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (key, val))| touched_idx.contains(&i).then_some((key, val)))
+            .collect();
+
+        for (key, val) in &vals {
+            assert!(trie.insert(key.as_bytes(), val.as_bytes().to_vec()).unwrap());
+        }
+
+        let expected = hex!("2bab6cdf91a23ebf3af683728ea02403a98346f99ed668eec572d55c70a4b08f");
+        assert_eq!(expected, trie.hash().0);
+
+        for (key, value) in &vals {
+            assert_eq!(
+                trie.get(key.as_bytes()).unwrap(),
+                Some(value.as_bytes()),
+                "expected {:?} to be in trie",
+                key
+            );
+        }
+
+        let touched_refs = touched
+            .iter()
+            .flat_map(|(key, _)| trie.get_with_touched(key.as_bytes()).unwrap().1)
+            .collect();
+
+        let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
+
+        trie.prune_unmarked_nodes(&touched_refs);
+
+        let serialized_size_after = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
+        assert!(serialized_size_after < serialized_size);
+
+        assert_eq!(trie.hash(), expected);
+        for (key, value) in touched {
+            assert_eq!(trie.get(key.as_bytes()).unwrap(), Some(value.as_bytes()));
+        }
+
+        // try RLP roundtrip
+        let decoded = MptNode::decode(trie.to_rlp()).unwrap();
+        assert_eq!(trie.hash(), decoded.hash());
+    }
+
+    #[test]
     pub fn test_keccak_trie() {
         const N: usize = 512;
 
@@ -1468,6 +1608,69 @@ mod tests {
             assert_eq!(trie.hash(), reference.hash());
         }
         assert!(trie.is_empty());
+    }
+
+    #[test]
+    pub fn test_keccak_trie_prune() {
+        const N: usize = 512;
+
+        // insert
+        let mut trie = MptNode::default();
+        for i in 0..N {
+            assert!(trie.insert_rlp(&keccak(i.to_be_bytes()), i).unwrap());
+
+            // check hash against trie build in reverse
+            let mut reference = MptNode::default();
+            for j in (0..=i).rev() {
+                reference.insert_rlp(&keccak(j.to_be_bytes()), j).unwrap();
+            }
+            assert_eq!(trie.hash(), reference.hash());
+        }
+
+        let expected = hex!("7310027edebdd1f7c950a7fb3413d551e85dff150d45aca4198c2f6315f9b4a7");
+        assert_eq!(trie.hash().0, expected);
+
+        let touched_idx = [0usize, 7, 128];
+
+        // get
+        for i in 0..N {
+            assert_eq!(trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(i));
+            assert!(trie.get(&keccak((i + N).to_be_bytes())).unwrap().is_none());
+        }
+
+        let touched_refs = touched_idx
+            .iter()
+            .flat_map(|&key| trie.get_with_touched(&keccak(key.to_be_bytes())).unwrap().1)
+            .collect();
+
+        let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
+
+        let mut pruned_trie = trie.clone();
+        pruned_trie.prune_unmarked_nodes(&touched_refs);
+
+        let serialized_size_after =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&pruned_trie).unwrap().len();
+
+        println!("serialized_size: {}", serialized_size);
+        println!("serialized_size_after: {}", serialized_size_after);
+
+        for i in touched_idx {
+            assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(i));
+        }
+
+        assert!(pruned_trie.get(&keccak(129usize.to_be_bytes())).is_err());
+
+        assert_eq!(pruned_trie.hash(), expected);
+
+        for i in touched_idx {
+            let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            assert_eq!(res1, res2);
+            println!("res: {:?}", res1);
+            assert_eq!(pruned_trie.hash(), trie.hash());
+        }
+
+        // assert_eq!(pruned_trie.hash(), trie.hash());
     }
 
     #[test]

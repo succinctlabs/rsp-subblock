@@ -140,8 +140,6 @@ async fn main() -> eyre::Result<()> {
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 
-        println!("public values: {:?}", proof.public_values.hash());
-
         let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
         agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
     }
