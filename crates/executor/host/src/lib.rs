@@ -589,84 +589,12 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             );
             big_state.update(&state_diffs[i]);
             let output_root = big_state.state_root();
-            #[cfg(debug_assertions)]
-            {
-                let mut debug_subblock_parent_state = subblock_parent_state.clone();
-                debug_subblock_parent_state.update(&state_diffs[i]);
-                let pruned_output_root = debug_subblock_parent_state.state_root();
-                assert_eq!(pruned_output_root, output_root);
-            }
 
             subblock_outputs[i].input_state_root = input_root;
             subblock_outputs[i].output_state_root = output_root;
 
             let subblock_input = &mut subblock_inputs[i];
             subblock_input.block_hashes = block_hashes.clone();
-
-            #[cfg(debug_assertions)]
-            {
-                // Reconstruct the subblock input exactly as it would be in the client.
-                let debug_subblock_input = subblock_input.clone();
-                let mut input = debug_subblock_input
-                    .current_block
-                    .with_recovered_senders()
-                    .expect("failed to recover senders");
-                input.is_first_subblock = subblock_input.is_first_subblock;
-                input.is_last_subblock = subblock_input.is_last_subblock;
-
-                tracing::info!("is first subblock: {:?}", input.is_first_subblock);
-                tracing::info!("is last subblock: {:?}", input.is_last_subblock);
-                let bytecode_by_hash =
-                    subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-                let trie_db = TrieDB::new(
-                    &subblock_parent_state,
-                    subblock_input.block_hashes.clone(),
-                    bytecode_by_hash,
-                );
-                let wrap_ref = WrapDatabaseRef(trie_db);
-                let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
-                let receipts = debug_execution_output.receipts.clone();
-                let outcome = ExecutionOutcome::new(
-                    debug_execution_output.state,
-                    Receipts::from(debug_execution_output.receipts),
-                    current_block.header.number,
-                    vec![debug_execution_output.requests.into()],
-                );
-
-                let mut logs_bloom = Bloom::default();
-                receipts.iter().for_each(|r| {
-                    logs_bloom.accrue_bloom(&r.bloom_slow());
-                });
-                let old_state_root = subblock_parent_state.state_root();
-                subblock_parent_state.update(&outcome.hash_state_slow());
-                let debug_subblock_output = SubblockOutput {
-                    receipts,
-                    logs_bloom,
-                    output_state_root: subblock_parent_state.state_root(),
-                    input_state_root: old_state_root,
-                };
-
-                if debug_subblock_output != subblock_outputs[i] {
-                    tracing::info!(
-                        "output state root: {:?} {:?}",
-                        debug_subblock_output.output_state_root,
-                        subblock_outputs[i].output_state_root
-                    );
-                    tracing::info!(
-                        "input state root: {:?} {:?}",
-                        debug_subblock_output.input_state_root,
-                        subblock_outputs[i].input_state_root
-                    );
-                }
-
-                if outcome.hash_state_slow() != state_diffs[i] {
-                    tracing::info!(
-                        "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
-                        outcome.hash_state_slow().into_sorted().display(),
-                        state_diffs[i].clone().into_sorted().display()
-                    );
-                }
-            }
         }
 
         let all_subblock_outputs = SubblockHostOutput {
@@ -676,6 +604,12 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             agg_input: aggregation_input,
             agg_parent_state: parent_state_bytes,
         };
+
+        #[cfg(debug_assertions)]
+        {
+            let is_valid = all_subblock_outputs.validate(Some(state_diffs));
+            assert!(is_valid);
+        }
 
         Ok(all_subblock_outputs)
     }

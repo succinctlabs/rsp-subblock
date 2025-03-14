@@ -13,6 +13,8 @@ serde_json.workspace = true
 serde.workspace = true
 bincode = "1.3.3"
 csv = "1.1"
+lazy_static = "1.5.0"
+
 # workspace
 rsp-host-executor.workspace = true
 rsp-client-executor.workspace = true

@@ -48,7 +48,6 @@ impl EthereumState {
 
     /// Mutates state based on diffs provided in [`HashedPostState`].
     pub fn update(&mut self, post_state: &HashedPostState) {
-        println!("************************** UPDATE **************************");
         for (hashed_address, account) in post_state.accounts.iter() {
             let hashed_address = hashed_address.as_slice();
 
@@ -65,11 +64,9 @@ impl EthereumState {
                         for (key, value) in state_storage.storage.iter() {
                             let key = key.as_slice();
                             if value.is_zero() {
-                                let res = storage_trie.delete(key).unwrap();
-                                println!("delete storage key: {:?} res: {:?}", key, res);
+                                storage_trie.delete(key).unwrap();
                             } else {
                                 storage_trie.insert_rlp(key, *value).unwrap();
-                                println!("insert storage key: {:?}", key);
                             }
                         }
 
@@ -85,11 +82,9 @@ impl EthereumState {
                     self.state_trie.insert_rlp(hashed_address, state_account).unwrap();
                 }
                 None => {
-                    println!("delete account key: {:?}", hashed_address);
                     self.state_trie.delete(hashed_address).unwrap();
                 }
             }
-            println!("new state root: {:?}", self.state_root());
         }
     }
 

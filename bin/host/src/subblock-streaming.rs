@@ -9,8 +9,8 @@ use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInpu
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
-    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
-    SP1PublicValues, SP1Stdin, SP1VerifyingKey,
+    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
+    SP1VerifyingKey,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -58,6 +58,10 @@ struct HostArgs {
 pub struct CacheData {
     pub subblock_inputs: Vec<SubblockInput>,
     pub agg_input: AggregationInput,
+}
+
+lazy_static::lazy_static! {
+    static ref DEBUG_LOG_FILE: PathBuf = PathBuf::from("debug.csv");
 }
 
 #[tokio::main]
@@ -162,7 +166,10 @@ async fn schedule_task(
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
-            println!("subblock {}: {}", i, report.total_instruction_count());
+            let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+            debug_log_file
+                .write_all(format!("subblock, {}", report.total_instruction_count()).as_bytes())
+                .unwrap();
         }
         let artifact = artifact_handle.await?;
         subblock_input_artifacts.push(artifact);
@@ -206,7 +213,10 @@ async fn schedule_task(
             .deferred_proof_verification(false)
             .run()
             .unwrap();
-        println!("agg: {}", report.total_instruction_count());
+        let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+        debug_log_file
+            .write_all(format!("agg, {}", report.total_instruction_count()).as_bytes())
+            .unwrap();
     }
 
     // Create an empty artifact for the output

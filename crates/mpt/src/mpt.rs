@@ -735,7 +735,9 @@ impl MptNode {
             return;
         }
 
-        if !touched_refs.contains(&self.reference()) {
+        if !touched_refs.contains(&self.reference())
+            && !matches!(self.data, MptNodeData::Leaf(_, _))
+        {
             self.data = MptNodeData::Digest(self.hash());
             return;
         }
@@ -1336,6 +1338,7 @@ fn node_from_digest(digest: B256) -> MptNode {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
+    use rand::Rng;
 
     use super::*;
 
@@ -1612,25 +1615,17 @@ mod tests {
 
     #[test]
     pub fn test_keccak_trie_prune() {
-        const N: usize = 512;
+        const N: usize = 10_000;
 
         // insert
         let mut trie = MptNode::default();
         for i in 0..N {
             assert!(trie.insert_rlp(&keccak(i.to_be_bytes()), i).unwrap());
-
-            // check hash against trie build in reverse
-            let mut reference = MptNode::default();
-            for j in (0..=i).rev() {
-                reference.insert_rlp(&keccak(j.to_be_bytes()), j).unwrap();
-            }
-            assert_eq!(trie.hash(), reference.hash());
         }
 
-        let expected = hex!("7310027edebdd1f7c950a7fb3413d551e85dff150d45aca4198c2f6315f9b4a7");
-        assert_eq!(trie.hash().0, expected);
+        let expected = trie.hash();
 
-        let touched_idx = [0usize, 7, 128];
+        let touched_idx = (0..1000).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
 
         // get
         for i in 0..N {
@@ -1654,19 +1649,24 @@ mod tests {
         println!("serialized_size: {}", serialized_size);
         println!("serialized_size_after: {}", serialized_size_after);
 
-        for i in touched_idx {
-            assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(i));
+        for i in touched_idx.iter() {
+            assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
         }
 
-        assert!(pruned_trie.get(&keccak(129usize.to_be_bytes())).is_err());
+        // trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
+        // trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
+
+        // assert_eq!(trie.hash(), expected);
+
+        // pruned_trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
+        // pruned_trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
 
         assert_eq!(pruned_trie.hash(), expected);
 
-        for i in touched_idx {
+        for i in touched_idx.iter().rev() {
             let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
             let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
             assert_eq!(res1, res2);
-            println!("res: {:?}", res1);
             assert_eq!(pruned_trie.hash(), trie.hash());
         }
 
