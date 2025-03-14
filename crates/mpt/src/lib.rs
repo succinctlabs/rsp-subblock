@@ -101,9 +101,6 @@ impl EthereumState {
         // Iterate over all of the touched state, marking nodes touched along the way.
         let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
 
-        // println!("touched_account_refs: {:?}", touched_account_refs);
-        // println!("touched_storage_refs: {:?}", touched_storage_refs);
-
         // Now, traverse the entire trie, replacing any nodes that are not touched with their digest.
         let prev_state_root = self.state_root();
         self.state_trie.prune_unmarked_nodes(&touched_account_refs);
@@ -148,53 +145,6 @@ impl EthereumState {
         }
         (touched_account_refs, touched_storage_refs)
     }
-    // // Iterate over all nodes recursively. If a node is not touched, replace it with its digest.
-
-    // for (hashed_address, account) in all_state_diffs.accounts.iter() {
-    //     if touched_state.accounts.contains_key(hashed_address) {
-    //         continue;
-    //     }
-
-    //     match account {
-
-    //     }
-    // }
-
-    //     match account {
-    //         Some(account) => {
-    //             let state_storage = &touched_state.storages.get(hashed_address).unwrap();
-    //             let storage_root = {
-    //                 let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
-
-    //                 if state_storage.wiped {
-    //                     storage_trie.clear();
-    //                 }
-
-    //                 for (key, value) in state_storage.storage.iter() {
-    //                     let key = key.as_slice();
-    //                     if value.is_zero() {
-    //                         storage_trie.delete(key).unwrap();
-    //                     } else {
-    //                         storage_trie.insert_rlp(key, *value).unwrap();
-    //                     }
-    //                 }
-
-    //                 storage_trie.hash()
-    //             };
-
-    //             let state_account = TrieAccount {
-    //                 nonce: account.nonce,
-    //                 balance: account.balance,
-    //                 storage_root,
-    //                 code_hash: account.get_bytecode_hash(),
-    //             };
-    //             self.state_trie.insert_rlp(hashed_address, state_account).unwrap();
-    //         }
-    //         None => {
-    //             self.state_trie.delete(hashed_address).unwrap();
-    //         }
-    //     }
-    // }
 }
 
 #[derive(Debug, thiserror::Error)]

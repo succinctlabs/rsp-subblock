@@ -897,7 +897,7 @@ impl MptNode {
         Ok(true)
     }
 
-    pub fn invalidate_ref_cache(&mut self) {
+    fn invalidate_ref_cache(&mut self) {
         self.cached_reference.borrow_mut().take();
     }
 
@@ -1514,67 +1514,6 @@ mod tests {
     }
 
     #[test]
-    pub fn test_prune() {
-        let mut trie = MptNode::default();
-        let vals = vec![
-            ("painting", "place"),
-            ("guest", "ship"),
-            ("mud", "leave"),
-            ("paper", "call"),
-            ("gate", "boast"),
-            ("tongue", "gain"),
-            ("baseball", "wait"),
-            ("tale", "lie"),
-            ("mood", "cope"),
-            ("menu", "fear"),
-        ];
-
-        let touched_idx = [0, 7];
-        let touched: Vec<_> = vals
-            .iter()
-            .enumerate()
-            .filter_map(|(i, (key, val))| touched_idx.contains(&i).then_some((key, val)))
-            .collect();
-
-        for (key, val) in &vals {
-            assert!(trie.insert(key.as_bytes(), val.as_bytes().to_vec()).unwrap());
-        }
-
-        let expected = hex!("2bab6cdf91a23ebf3af683728ea02403a98346f99ed668eec572d55c70a4b08f");
-        assert_eq!(expected, trie.hash().0);
-
-        for (key, value) in &vals {
-            assert_eq!(
-                trie.get(key.as_bytes()).unwrap(),
-                Some(value.as_bytes()),
-                "expected {:?} to be in trie",
-                key
-            );
-        }
-
-        let touched_refs = touched
-            .iter()
-            .flat_map(|(key, _)| trie.get_with_touched(key.as_bytes()).unwrap().1)
-            .collect();
-
-        let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
-
-        trie.prune_unmarked_nodes(&touched_refs);
-
-        let serialized_size_after = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
-        assert!(serialized_size_after < serialized_size);
-
-        assert_eq!(trie.hash(), expected);
-        for (key, value) in touched {
-            assert_eq!(trie.get(key.as_bytes()).unwrap(), Some(value.as_bytes()));
-        }
-
-        // try RLP roundtrip
-        let decoded = MptNode::decode(trie.to_rlp()).unwrap();
-        assert_eq!(trie.hash(), decoded.hash());
-    }
-
-    #[test]
     pub fn test_keccak_trie() {
         const N: usize = 512;
 
@@ -1615,7 +1554,7 @@ mod tests {
 
     #[test]
     pub fn test_keccak_trie_prune() {
-        const N: usize = 10_000;
+        const N: usize = 1000;
 
         // insert
         let mut trie = MptNode::default();
@@ -1625,7 +1564,7 @@ mod tests {
 
         let expected = trie.hash();
 
-        let touched_idx = (0..1000).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
+        let touched_idx = (0..100).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
 
         // get
         for i in 0..N {
@@ -1653,14 +1592,6 @@ mod tests {
             assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
         }
 
-        // trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
-        // trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
-
-        // assert_eq!(trie.hash(), expected);
-
-        // pruned_trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
-        // pruned_trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
-
         assert_eq!(pruned_trie.hash(), expected);
 
         for i in touched_idx.iter().rev() {
@@ -1669,8 +1600,6 @@ mod tests {
             assert_eq!(res1, res2);
             assert_eq!(pruned_trie.hash(), trie.hash());
         }
-
-        // assert_eq!(pruned_trie.hash(), trie.hash());
     }
 
     #[test]

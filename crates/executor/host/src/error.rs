@@ -2,6 +2,7 @@ use alloy_rpc_types::ConversionError;
 use alloy_transport::TransportError;
 use reth_errors::BlockExecutionError;
 use revm_primitives::B256;
+use rsp_client_executor::error::ClientError;
 use rsp_mpt::FromProofError;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,4 +25,6 @@ pub enum Error {
     HeaderMismatch(B256, B256),
     #[error("State root mismatch after local execution \n found {} expected {}", .0, .1)]
     StateRootMismatch(B256, B256),
+    #[error("Client validation error: {}", .0)]
+    ClientValidation(#[from] ClientError),
 }

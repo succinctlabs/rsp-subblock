@@ -90,7 +90,7 @@ pub struct SubblockHostOutput {
 }
 
 impl SubblockHostOutput {
-    pub fn validate(&self, state_diffs: Option<Vec<HashedPostState>>) -> bool {
+    pub fn validate(&self, state_diffs: Option<Vec<HashedPostState>>) -> Result<(), ClientError> {
         let current_block = self.agg_input.current_block.clone();
         let executor_difficulty = current_block.header.difficulty;
         for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
@@ -119,7 +119,7 @@ impl SubblockHostOutput {
             );
             let wrap_ref = WrapDatabaseRef(trie_db);
             let debug_execution_output =
-                EthereumVariant::execute(&input, executor_difficulty, wrap_ref).unwrap();
+                EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
             let receipts = debug_execution_output.receipts.clone();
             let outcome = ExecutionOutcome::new(
                 debug_execution_output.state,
@@ -142,30 +142,30 @@ impl SubblockHostOutput {
             };
 
             if debug_subblock_output != subblock_output {
-                println!(
+                eprintln!(
                     "output state root: {:?} {:?}",
                     debug_subblock_output.output_state_root, subblock_output.output_state_root
                 );
-                println!(
+                eprintln!(
                     "input state root: {:?} {:?}",
                     debug_subblock_output.input_state_root, subblock_output.input_state_root
                 );
-                return false;
+                return Err(ClientError::InvalidSubblockOutput);
             }
             let Some(ref state_diffs) = state_diffs else {
                 continue;
             };
             let state_diff = state_diffs[i].clone();
             if outcome.hash_state_slow() != state_diff {
-                println!(
+                eprintln!(
                     "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
                     outcome.hash_state_slow().into_sorted().display(),
                     state_diff.into_sorted().display()
                 );
-                return false;
+                return Err(ClientError::InvalidStateDiff);
             }
         }
-        true
+        Ok(())
     }
 }
 
@@ -264,15 +264,13 @@ impl WitnessInput for ClientExecutorInput {
     Eq,
 )]
 pub struct SubblockOutput {
-    /// The state diff from just this subblock.
-    ///
-    /// This will be applied to the `input_state_diff` in the aggregation program.
+    /// The new state root after executing this subblock.
     pub output_state_root: B256,
     /// The logs bloom.
     pub logs_bloom: Bloom,
     /// The transaction receipts.
     pub receipts: Vec<Receipt>,
-    /// Input state diff.
+    /// The state root before executing this subblock.
     pub input_state_root: B256,
     // pub requests: Vec<Request>, // This is only needed for pectra.
 }
