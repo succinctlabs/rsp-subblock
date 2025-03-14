@@ -572,8 +572,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                     .map(keccak256)
                     .collect::<Vec<_>>();
 
-                // println!("touched state: {:?}", touched_state);
-
                 touched_state.insert(keccak256(address), keys);
             }
 
@@ -606,8 +604,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         #[cfg(debug_assertions)]
         {
-            let is_valid = all_subblock_outputs.validate(Some(state_diffs));
-            assert!(is_valid);
+            all_subblock_outputs
+                .validate(Some(state_diffs))
+                .map_err(HostError::ClientValidation)?;
         }
 
         Ok(all_subblock_outputs)

@@ -25,4 +25,8 @@ pub enum ClientError {
     MptError(#[from] MptError),
     #[error("Deserialization Error")]
     DeserializationError,
+    #[error("Invalid subblock output")]
+    InvalidSubblockOutput,
+    #[error("Invalid state diff")]
+    InvalidStateDiff,
 }

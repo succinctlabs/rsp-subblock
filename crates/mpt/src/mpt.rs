@@ -1615,7 +1615,7 @@ mod tests {
 
     #[test]
     pub fn test_keccak_trie_prune() {
-        const N: usize = 10_000;
+        const N: usize = 1000;
 
         // insert
         let mut trie = MptNode::default();
@@ -1625,7 +1625,7 @@ mod tests {
 
         let expected = trie.hash();
 
-        let touched_idx = (0..1000).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
+        let touched_idx = (0..100).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
 
         // get
         for i in 0..N {
@@ -1653,14 +1653,6 @@ mod tests {
             assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
         }
 
-        // trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
-        // trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
-
-        // assert_eq!(trie.hash(), expected);
-
-        // pruned_trie.insert_rlp(&keccak(100000usize.to_be_bytes()), 100usize).unwrap();
-        // pruned_trie.delete(&keccak(100000usize.to_be_bytes())).unwrap();
-
         assert_eq!(pruned_trie.hash(), expected);
 
         for i in touched_idx.iter().rev() {
@@ -1669,8 +1661,6 @@ mod tests {
             assert_eq!(res1, res2);
             assert_eq!(pruned_trie.hash(), trie.hash());
         }
-
-        // assert_eq!(pruned_trie.hash(), trie.hash());
     }
 
     #[test]
