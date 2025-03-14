@@ -578,7 +578,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             let mut subblock_parent_state = big_state.clone();
             let prev_root = subblock_parent_state.state_root();
             subblock_parent_state.prune(&touched_state);
-            subblock_parent_state.state_trie.invalidate_ref_cache();
             let new_root = subblock_parent_state.state_root();
             assert_eq!(prev_root, new_root);
             subblock_parent_states.push(
