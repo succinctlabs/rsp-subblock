@@ -512,8 +512,7 @@ pub trait WitnessInput {
 ///
 /// # Panics
 ///  - If N is not a multiple of 4.
-///  - if N is not a power of two
-///  - if the size hinted is 0
+///  - If the size hinted is 0.
 pub fn read_aligned_vec<const N: usize>() -> AlignedVec<N> {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "zkvm")] {
@@ -535,7 +534,7 @@ pub fn read_aligned_vec<const N: usize>() -> AlignedVec<N> {
             }
             vec
         } else {
-            AlignedVec::<N>::with_capacity(0)
+            unimplemented!()
         }
     }
 }
