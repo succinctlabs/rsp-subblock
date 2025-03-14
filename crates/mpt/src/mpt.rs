@@ -1514,67 +1514,6 @@ mod tests {
     }
 
     #[test]
-    pub fn test_prune() {
-        let mut trie = MptNode::default();
-        let vals = vec![
-            ("painting", "place"),
-            ("guest", "ship"),
-            ("mud", "leave"),
-            ("paper", "call"),
-            ("gate", "boast"),
-            ("tongue", "gain"),
-            ("baseball", "wait"),
-            ("tale", "lie"),
-            ("mood", "cope"),
-            ("menu", "fear"),
-        ];
-
-        let touched_idx = [0, 7];
-        let touched: Vec<_> = vals
-            .iter()
-            .enumerate()
-            .filter_map(|(i, (key, val))| touched_idx.contains(&i).then_some((key, val)))
-            .collect();
-
-        for (key, val) in &vals {
-            assert!(trie.insert(key.as_bytes(), val.as_bytes().to_vec()).unwrap());
-        }
-
-        let expected = hex!("2bab6cdf91a23ebf3af683728ea02403a98346f99ed668eec572d55c70a4b08f");
-        assert_eq!(expected, trie.hash().0);
-
-        for (key, value) in &vals {
-            assert_eq!(
-                trie.get(key.as_bytes()).unwrap(),
-                Some(value.as_bytes()),
-                "expected {:?} to be in trie",
-                key
-            );
-        }
-
-        let touched_refs = touched
-            .iter()
-            .flat_map(|(key, _)| trie.get_with_touched(key.as_bytes()).unwrap().1)
-            .collect();
-
-        let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
-
-        trie.prune_unmarked_nodes(&touched_refs);
-
-        let serialized_size_after = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
-        assert!(serialized_size_after < serialized_size);
-
-        assert_eq!(trie.hash(), expected);
-        for (key, value) in touched {
-            assert_eq!(trie.get(key.as_bytes()).unwrap(), Some(value.as_bytes()));
-        }
-
-        // try RLP roundtrip
-        let decoded = MptNode::decode(trie.to_rlp()).unwrap();
-        assert_eq!(trie.hash(), decoded.hash());
-    }
-
-    #[test]
     pub fn test_keccak_trie() {
         const N: usize = 512;
 

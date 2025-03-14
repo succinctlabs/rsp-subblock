@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Runs RSP a bunch of times, and outputs the number of cycles for each constituent subblock program 
+/ aggregation program in the output file.
+
+Usage: python3 subblock_cycle_counts.py <start_block> <end_block> <output_file> [--workers <num_workers>]
+"""
+
 import os
 import csv
 import subprocess

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Analyzes the gas usage of transactions in a given block range.
+
+Usage: python3 analyze_blocks.py <start_block> <end_block>
+"""
 
 import sys
 import os
