@@ -166,9 +166,13 @@ async fn schedule_task(
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
-            let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+            let mut debug_log_file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(DEBUG_LOG_FILE.clone())
+                .unwrap();
             debug_log_file
-                .write_all(format!("subblock, {}", report.total_instruction_count()).as_bytes())
+                .write_all(format!("subblock, {}\n", report.total_instruction_count()).as_bytes())
                 .unwrap();
         }
         let artifact = artifact_handle.await?;
@@ -213,9 +217,13 @@ async fn schedule_task(
             .deferred_proof_verification(false)
             .run()
             .unwrap();
-        let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+        let mut debug_log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(DEBUG_LOG_FILE.clone())
+            .unwrap();
         debug_log_file
-            .write_all(format!("agg, {}", report.total_instruction_count()).as_bytes())
+            .write_all(format!("aggregation, {}\n", report.total_instruction_count()).as_bytes())
             .unwrap();
     }
 
@@ -291,11 +299,6 @@ pub fn to_aggregation_stdin(
                 .to_vec();
 
         current_public_values.write_all(&serialized).unwrap();
-        // let mut hasher = Sha256::new();
-        // hasher.update(current_public_values.as_slice());
-        // let hash = hasher.finalize();
-
-        // println!("current_public_values: {:?}", hash);
 
         public_values.push(current_public_values);
     }
