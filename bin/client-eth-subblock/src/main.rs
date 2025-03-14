@@ -1,8 +1,10 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use rkyv::util::AlignedVec;
-use rsp_client_executor::{io::SubblockInput, ClientExecutor, EthereumVariant};
+use rsp_client_executor::{
+    io::{read_aligned_vec, SubblockInput},
+    ClientExecutor, EthereumVariant,
+};
 use rsp_mpt::EthereumState;
 
 pub fn main() {
@@ -15,12 +17,9 @@ pub fn main() {
         input.is_first_subblock, input.is_last_subblock
     );
 
-    let parent_state_bytes = sp1_zkvm::io::read_vec();
-
     println!("cycle-tracker-start: deserialize rkyv stuff");
 
-    let mut aligned = AlignedVec::<16>::with_capacity(parent_state_bytes.len());
-    aligned.extend_from_slice(&parent_state_bytes);
+    let aligned = read_aligned_vec::<16>();
     let mut parent_state =
         rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned).unwrap();
 

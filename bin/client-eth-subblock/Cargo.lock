@@ -2960,6 +2960,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "bincode",
+ "cfg-if",
  "futures",
  "itertools 0.13.0",
  "reth-chainspec",
