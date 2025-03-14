@@ -897,7 +897,7 @@ impl MptNode {
         Ok(true)
     }
 
-    pub fn invalidate_ref_cache(&mut self) {
+    fn invalidate_ref_cache(&mut self) {
         self.cached_reference.borrow_mut().take();
     }
 
