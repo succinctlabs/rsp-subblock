@@ -9,9 +9,7 @@ use std::{borrow::BorrowMut, fmt::Display, io::Cursor};
 
 use custom::CustomEvmConfig;
 use error::ClientError;
-use io::{
-    AggregationInput, BufferedTrieDB, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB,
-};
+use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB};
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
 use reth_ethereum_consensus::{
@@ -28,7 +26,6 @@ use reth_optimism_consensus::validate_block_post_execution as validate_block_pos
 use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
-use reth_trie::HashedPostState;
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, U256};
 use rkyv::util::AlignedVec;

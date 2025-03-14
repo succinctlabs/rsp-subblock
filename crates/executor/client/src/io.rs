@@ -34,15 +34,12 @@ pub struct ClientExecutorInput {
     pub bytecodes: Vec<Bytecode>,
 }
 
+/// Consider the `parent_state` and the `input_state_diff` as part of this struct. I can't put them
+/// in the same struct though because that messes with the bincode/rkyv alignment stuff.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    // /// The parent state as rkyv bytes.
-    // pub parent_state_bytes: Vec<u8>,
-    // /// The current state diff as of the start of the subblock.
-    // /// Represented as rkyv bytes.
-    // pub state_diff_bytes: Vec<u8>,
     /// The blockhashes used by the subblock
     /// This can be shrunk, but it's not a big deal
     pub block_hashes: HashMap<u64, B256>,

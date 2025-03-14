@@ -1,5 +1,5 @@
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
-use revm::primitives::{Address, HashMap, B256, U256};
+use revm::primitives::{Address, HashMap, B256};
 use rkyv::with::{Identity, MapKV};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -117,40 +117,6 @@ impl EthereumState {
             let new_storage_root = storage_trie.hash();
             assert_eq!(prev_storage_root, new_storage_root);
         }
-    }
-
-    fn get_touched_nodes_old(
-        &self,
-        state_diff: &HashedPostState,
-    ) -> (HashSet<MptNodeReference>, HashMap<B256, HashSet<MptNodeReference>>) {
-        let mut touched_account_refs = HashSet::new();
-        let mut touched_storage_refs = HashMap::<B256, HashSet<MptNodeReference>>::new();
-        for (hashed_address, account) in state_diff.accounts.iter() {
-            let hashed_address_bytes = hashed_address.as_slice();
-            match account {
-                Some(_account) => {
-                    let state_storage = &state_diff.storages.get(hashed_address).unwrap();
-
-                    let storage_trie = self.storage_tries.get(hashed_address).unwrap();
-
-                    for (key, _value) in state_storage.storage.iter() {
-                        let key = key.as_slice();
-                        let (_, touched) = storage_trie.get_with_touched(key).unwrap();
-                        touched_storage_refs.entry(*hashed_address).or_default().extend(touched);
-                    }
-
-                    let (_account_ref, touched) =
-                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
-                    touched_account_refs.extend(touched);
-                }
-                None => {
-                    let (_account_ref, touched) =
-                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
-                    touched_account_refs.extend(touched);
-                }
-            }
-        }
-        (touched_account_refs, touched_storage_refs)
     }
 
     fn get_touched_nodes(

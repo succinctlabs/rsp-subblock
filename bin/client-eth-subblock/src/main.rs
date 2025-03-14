@@ -10,6 +10,10 @@ pub fn main() {
     println!("cycle-tracker-start: deserialize input");
     let input = sp1_zkvm::io::read::<SubblockInput>();
     println!("cycle-tracker-end: deserialize input");
+    println!(
+        "is_first_subblock: {:?}, is_last_subblock: {:?}",
+        input.is_first_subblock, input.is_last_subblock
+    );
 
     let parent_state_bytes = sp1_zkvm::io::read_vec();
 
@@ -28,13 +32,13 @@ pub fn main() {
 
     // Execute the block.
     let executor = ClientExecutor;
-    let state_diff = executor
+    let subblock_output = executor
         .execute_subblock::<EthereumVariant>(input, &mut parent_state)
         .expect("failed to execute client");
 
     // Commit the state diff.
     println!("cycle-tracker-start: serialize state diff");
-    let serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&state_diff)
+    let serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&subblock_output)
         .expect("failed to serialize state diff");
     println!("cycle-tracker-end: serialize state diff");
     println!("cycle-tracker-start: commit");

@@ -135,7 +135,8 @@ async fn main() -> eyre::Result<()> {
             );
         }
         // Generate the subblock proof.
-        let proof = schedule_controller(elf_artifact.clone(), stdin, &cluster_client).await?;
+        let proof =
+            schedule_controller(elf_artifact.clone(), stdin, &cluster_client, args.execute).await?;
 
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
@@ -162,7 +163,8 @@ async fn main() -> eyre::Result<()> {
     }
 
     let mut proof =
-        schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client).await?;
+        schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client, args.execute)
+            .await?;
     let block_hash = proof.public_values.read::<B256>();
     println!("Block hash: {}", block_hash);
 
@@ -195,6 +197,7 @@ async fn schedule_controller(
     elf_artifact: Artifact,
     stdin: SP1Stdin,
     cluster_client: &ClusterClient,
+    _execute: bool,
 ) -> eyre::Result<SP1ProofWithPublicValues> {
     let stdin_artifact: Artifact =
         upload_artifact(cluster_client, "subblock_stdin", stdin, ArtifactType::Stdin).await?;
