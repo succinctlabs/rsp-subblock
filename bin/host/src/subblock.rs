@@ -111,26 +111,20 @@ async fn main() -> eyre::Result<()> {
     // Setup the proving key and verification key.
     let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let elf_artifact = upload_artifact(
-        &cluster_client,
-        "subblock_elf",
-        subblock_pk.elf.clone(),
-        ArtifactType::Program,
-    )
-    .await?;
+    let elf_artifact =
+        upload_artifact(&cluster_client, "subblock_elf", &subblock_pk.elf, ArtifactType::Program)
+            .await?;
 
     let mut public_values = Vec::new();
     let mut agg_stdin = SP1Stdin::new();
     for i in 0..client_input.subblock_inputs.len() {
         let input = &client_input.subblock_inputs[i];
         let parent_state = &client_input.subblock_parent_states[i];
-        let input_state_diff = &client_input.subblock_input_diffs[i];
 
         // Execute the block inside the zkVM.
         let mut stdin = SP1Stdin::new();
         stdin.write(&input);
         stdin.write_vec(parent_state.clone());
-        stdin.write_vec(input_state_diff.clone());
 
         if args.execute {
             let (_public_values, execution_report) =
@@ -146,9 +140,6 @@ async fn main() -> eyre::Result<()> {
 
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
-
-        println!("public values: {:?}", proof.public_values.hash());
-        // println!("is_last_subblock: {}", input.is_last_subblock);
 
         let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
         agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
@@ -166,18 +157,11 @@ async fn main() -> eyre::Result<()> {
     agg_stdin.write(&client_input.agg_input);
     agg_stdin.write_vec(client_input.agg_parent_state);
 
-    // if args.execute {
-    //     let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
-    //     println!("total instructions for agg: {}", execution_report.total_instruction_count());
-    // }
-    // let mut proof = client.prove(&pk, &agg_stdin).compressed().run().unwrap();
-
-    let client = ProverClient::from_env();
     if args.execute {
-        let (_public_values, execution_report) =
-            client.execute(&pk.elf, &agg_stdin).deferred_proof_verification(false).run().unwrap();
+        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
         println!("total instructions for agg: {}", execution_report.total_instruction_count());
     }
+
     let mut proof =
         schedule_controller(agg_elf_artifact.clone(), agg_stdin, &cluster_client, args.execute)
             .await?;

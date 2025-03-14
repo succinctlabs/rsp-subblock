@@ -1,7 +1,6 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use reth_trie::HashedPostState;
 use rkyv::util::AlignedVec;
 use rsp_client_executor::{io::SubblockInput, ClientExecutor, EthereumVariant};
 use rsp_mpt::EthereumState;
@@ -17,19 +16,14 @@ pub fn main() {
     );
 
     let parent_state_bytes = sp1_zkvm::io::read_vec();
-    let input_state_diff_bytes = sp1_zkvm::io::read_vec();
 
     println!("cycle-tracker-start: deserialize rkyv stuff");
 
     let mut aligned = AlignedVec::<16>::with_capacity(parent_state_bytes.len());
     aligned.extend_from_slice(&parent_state_bytes);
-    let parent_state =
+    let mut parent_state =
         rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned).unwrap();
 
-    let mut aligned = AlignedVec::<16>::with_capacity(input_state_diff_bytes.len());
-    aligned.extend_from_slice(&input_state_diff_bytes);
-    let input_state_diff =
-        rkyv::from_bytes::<HashedPostState, rkyv::rancor::BoxedError>(&aligned).unwrap();
     println!("cycle-tracker-end: deserialize rkyv stuff");
 
     println!("cycle-tracker-start: clone transactions");
@@ -39,7 +33,7 @@ pub fn main() {
     // Execute the block.
     let executor = ClientExecutor;
     let subblock_output = executor
-        .execute_subblock::<EthereumVariant>(input, parent_state, input_state_diff)
+        .execute_subblock::<EthereumVariant>(input, &mut parent_state)
         .expect("failed to execute client");
 
     // Commit the state diff.

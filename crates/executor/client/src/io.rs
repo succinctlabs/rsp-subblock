@@ -2,16 +2,17 @@ use std::{collections::HashMap, iter::once};
 
 use itertools::Itertools;
 use reth_errors::ProviderError;
+use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, B256, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, B256, U256,
 };
 use reth_trie::{HashedPostState, TrieAccount};
-use revm::DatabaseRef;
+use revm::{db::WrapDatabaseRef, DatabaseRef};
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
 use serde::{Deserialize, Serialize};
 
-use crate::error::ClientError;
+use crate::{error::ClientError, EthereumVariant, Variant};
 
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
@@ -83,10 +84,89 @@ pub struct SubblockInput {
 pub struct SubblockHostOutput {
     pub subblock_inputs: Vec<SubblockInput>,
     pub subblock_parent_states: Vec<Vec<u8>>,
-    pub subblock_input_diffs: Vec<Vec<u8>>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
     pub agg_parent_state: Vec<u8>,
+}
+
+impl SubblockHostOutput {
+    pub fn validate(&self, state_diffs: Option<Vec<HashedPostState>>) -> Result<(), ClientError> {
+        let current_block = self.agg_input.current_block.clone();
+        let executor_difficulty = current_block.header.difficulty;
+        for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
+            let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
+                &self.subblock_parent_states[i],
+            )
+            .unwrap();
+
+            let subblock_output = self.subblock_outputs[i].clone();
+            let debug_subblock_input = subblock_input.clone();
+            let mut input = debug_subblock_input
+                .current_block
+                .with_recovered_senders()
+                .expect("failed to recover senders");
+            input.is_first_subblock = subblock_input.is_first_subblock;
+            input.is_last_subblock = subblock_input.is_last_subblock;
+
+            println!("is first subblock: {:?}", input.is_first_subblock);
+            println!("is last subblock: {:?}", input.is_last_subblock);
+            let bytecode_by_hash =
+                subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+            let trie_db = TrieDB::new(
+                &subblock_parent_state,
+                subblock_input.block_hashes.clone(),
+                bytecode_by_hash,
+            );
+            let wrap_ref = WrapDatabaseRef(trie_db);
+            let debug_execution_output =
+                EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
+            let receipts = debug_execution_output.receipts.clone();
+            let outcome = ExecutionOutcome::new(
+                debug_execution_output.state,
+                Receipts::from(debug_execution_output.receipts),
+                current_block.header.number,
+                vec![debug_execution_output.requests.into()],
+            );
+
+            let mut logs_bloom = Bloom::default();
+            receipts.iter().for_each(|r| {
+                logs_bloom.accrue_bloom(&r.bloom_slow());
+            });
+            let old_state_root = subblock_parent_state.state_root();
+            subblock_parent_state.update(&outcome.hash_state_slow());
+            let debug_subblock_output = SubblockOutput {
+                receipts,
+                logs_bloom,
+                output_state_root: subblock_parent_state.state_root(),
+                input_state_root: old_state_root,
+            };
+
+            if debug_subblock_output != subblock_output {
+                eprintln!(
+                    "output state root: {:?} {:?}",
+                    debug_subblock_output.output_state_root, subblock_output.output_state_root
+                );
+                eprintln!(
+                    "input state root: {:?} {:?}",
+                    debug_subblock_output.input_state_root, subblock_output.input_state_root
+                );
+                return Err(ClientError::InvalidSubblockOutput);
+            }
+            let Some(ref state_diffs) = state_diffs else {
+                continue;
+            };
+            let state_diff = state_diffs[i].clone();
+            if outcome.hash_state_slow() != state_diff {
+                eprintln!(
+                    "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
+                    outcome.hash_state_slow().into_sorted().display(),
+                    state_diff.into_sorted().display()
+                );
+                return Err(ClientError::InvalidStateDiff);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The input for the client to execute a block and fully verify the STF (state transition
@@ -184,18 +264,14 @@ impl WitnessInput for ClientExecutorInput {
     Eq,
 )]
 pub struct SubblockOutput {
-    /// The state diff from just this subblock.
-    ///
-    /// This will be applied to the `input_state_diff` in the aggregation program.
-    pub output_state_diff: HashedPostState,
+    /// The new state root after executing this subblock.
+    pub output_state_root: B256,
     /// The logs bloom.
     pub logs_bloom: Bloom,
     /// The transaction receipts.
     pub receipts: Vec<Receipt>,
-    /// The parent state root.
-    pub parent_state_root: B256,
-    /// Input state diff.
-    pub input_state_diff: HashedPostState,
+    /// The state root before executing this subblock.
+    pub input_state_root: B256,
     // pub requests: Vec<Request>, // This is only needed for pectra.
 }
 
@@ -203,23 +279,15 @@ impl SubblockOutput {
     /// This is intended to ONLY be called by consecutive subblocks of the same block.
     /// self is the current cumulative subblock output, and other is the new subblock output.
     pub fn extend(&mut self, other: Self) {
+        // Get the gas used so far, and add it to all of the new receipts.
         let cumulative_gas_used = match self.receipts.last() {
             Some(receipt) => receipt.cumulative_gas_used,
             None => 0,
         };
 
-        // Make sure that the current output state diff lines up with the next input state diff.
-        // self.input_state_diff.extend(self.output_state_diff.clone());
-        // assert_eq!(
-        //     self.input_state_diff, other.input_state_diff,
-        //     "expected self.input_state_diff + self.output_state_diff = other.input_state_diff"
-        // );
-        assert_eq!(
-            self.output_state_diff.clone().into_sorted(),
-            other.input_state_diff.into_sorted(),
-            "expected self.output_state_diff = other.input_state_diff"
-        );
-        self.output_state_diff.extend(other.output_state_diff.clone());
+        // Make sure that the current output state root lines up with the next input state root.
+        assert_eq!(self.output_state_root, other.input_state_root);
+        self.output_state_root = other.output_state_root;
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
         let mut receipts = other.receipts;
         receipts.iter_mut().for_each(|receipt| {
@@ -227,12 +295,6 @@ impl SubblockOutput {
         });
         self.receipts.extend(receipts);
 
-        // Ensure that both parent state roots are the same.
-        // TODO: initialize the first parent state root. Maybe an option or something.
-        if self.parent_state_root != B256::ZERO {
-            assert_eq!(self.parent_state_root, other.parent_state_root);
-        }
-        println!("Successfully extended subblock output");
         // self.requests.extend(other.requests);
     }
 }

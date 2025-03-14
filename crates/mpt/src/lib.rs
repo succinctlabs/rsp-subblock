@@ -2,11 +2,12 @@ use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
 use rkyv::with::{Identity, MapKV};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Module containing MPT code adapted from `zeth`.
 mod mpt;
 pub use mpt::Error;
-use mpt::{proofs_to_tries, transition_proofs_to_tries, B256Def, MptNode};
+use mpt::{proofs_to_tries, transition_proofs_to_tries, B256Def, MptNode, MptNodeReference};
 
 /// Ethereum state trie and account storage tries.
 #[derive(
@@ -90,6 +91,59 @@ impl EthereumState {
     /// Computes the state root.
     pub fn state_root(&self) -> B256 {
         self.state_trie.hash()
+    }
+
+    /// Given a state trie constructed with some storage proofs, prunes it to only include the necessary
+    /// hashes for certain addresses / storage slots touched.
+    ///
+    /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
+    pub fn prune(&mut self, touched_state: &HashMap<B256, Vec<B256>>) {
+        // Iterate over all of the touched state, marking nodes touched along the way.
+        let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
+
+        // Now, traverse the entire trie, replacing any nodes that are not touched with their digest.
+        let prev_state_root = self.state_root();
+        self.state_trie.prune_unmarked_nodes(&touched_account_refs);
+        let new_state_root = self.state_root();
+        assert_eq!(prev_state_root, new_state_root);
+
+        for (hashed_address, storage_refs) in touched_storage_refs {
+            let storage_trie = self.storage_tries.get_mut(&hashed_address).unwrap();
+            let prev_storage_root = storage_trie.hash();
+            storage_trie.prune_unmarked_nodes(&storage_refs);
+            let new_storage_root = storage_trie.hash();
+            assert_eq!(prev_storage_root, new_storage_root);
+        }
+    }
+
+    fn get_touched_nodes(
+        &self,
+        state_diff: &HashMap<B256, Vec<B256>>,
+    ) -> (HashSet<MptNodeReference>, HashMap<B256, HashSet<MptNodeReference>>) {
+        let mut touched_account_refs = HashSet::new();
+        let mut touched_storage_refs = HashMap::<B256, HashSet<MptNodeReference>>::new();
+        for (hashed_address, keys) in state_diff.iter() {
+            let hashed_address_bytes = hashed_address.as_slice();
+            match self.storage_tries.get(hashed_address) {
+                Some(storage_trie) => {
+                    for key in keys {
+                        let key = key.as_slice();
+                        let (_, touched) = storage_trie.get_with_touched(key).unwrap();
+                        touched_storage_refs.entry(*hashed_address).or_default().extend(touched);
+                    }
+
+                    let (_account_ref, touched) =
+                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
+                    touched_account_refs.extend(touched);
+                }
+                None => {
+                    let (_account_ref, touched) =
+                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
+                    touched_account_refs.extend(touched);
+                }
+            }
+        }
+        (touched_account_refs, touched_storage_refs)
     }
 }
 

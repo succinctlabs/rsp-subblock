@@ -11,6 +11,10 @@ members = [
 exclude = []
 resolver = "2"
 
+[profile.release-with-debug]
+inherits = "release"
+debug-assertions = true
+
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"

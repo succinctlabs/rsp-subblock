@@ -9,16 +9,14 @@ use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInpu
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
-    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
-    SP1PublicValues, SP1Stdin, SP1VerifyingKey,
+    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
+    SP1VerifyingKey,
 };
+use std::io::Write;
 use std::path::PathBuf;
-use std::{hash::Hash, io::Write};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
-
-use sha2::{Digest, Sha256};
 
 use sp1_worker::{
     artifact::ArtifactType,
@@ -60,6 +58,10 @@ struct HostArgs {
 pub struct CacheData {
     pub subblock_inputs: Vec<SubblockInput>,
     pub agg_input: AggregationInput,
+}
+
+lazy_static::lazy_static! {
+    static ref DEBUG_LOG_FILE: PathBuf = PathBuf::from("debug.csv");
 }
 
 #[tokio::main]
@@ -155,18 +157,19 @@ async fn schedule_task(
     for i in 0..inputs.subblock_inputs.len() {
         let input = &inputs.subblock_inputs[i];
         let parent_state = &inputs.subblock_parent_states[i];
-        let input_state_diff = &inputs.subblock_input_diffs[i];
 
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
-        stdin.write_vec(input_state_diff.clone());
         let artifact_handle =
             upload_artifact(&cluster_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
-            println!("subblock {}: {}", i, report.total_instruction_count());
+            let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+            debug_log_file
+                .write_all(format!("subblock, {}", report.total_instruction_count()).as_bytes())
+                .unwrap();
         }
         let artifact = artifact_handle.await?;
         subblock_input_artifacts.push(artifact);
@@ -210,7 +213,10 @@ async fn schedule_task(
             .deferred_proof_verification(false)
             .run()
             .unwrap();
-        println!("agg: {}", report.total_instruction_count());
+        let mut debug_log_file = std::fs::File::create(DEBUG_LOG_FILE.clone()).unwrap();
+        debug_log_file
+            .write_all(format!("agg, {}", report.total_instruction_count()).as_bytes())
+            .unwrap();
     }
 
     // Create an empty artifact for the output
@@ -253,11 +259,11 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // println!("run again, this time setup is cached.");
+    // cluster_client
+    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
     Ok(result)
 }

@@ -1,6 +1,5 @@
 mod error;
 pub use error::Error as HostError;
-use reth_trie::HashedPostState;
 use std::{
     collections::{BTreeSet, HashMap},
     marker::PhantomData,
@@ -11,7 +10,7 @@ use alloy_transport::Transport;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::CacheDB;
-use revm_primitives::Address;
+use revm_primitives::{keccak256, Address};
 use rsp_client_executor::{
     io::{
         AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
@@ -310,9 +309,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let executor_difficulty = current_block.header.difficulty;
 
-        let mut all_executor_outcomes = ExecutionOutcome::default();
+        let mut cumulative_executor_outcomes = ExecutionOutcome::default();
+        let mut cumulative_state_requests = HashMap::new();
 
-        let mut all_state_requests = HashMap::new();
+        let mut all_state_requests = Vec::new();
+        let mut all_executor_outcomes = Vec::new();
 
         let mut num_transactions_completed: u64 = 0;
 
@@ -321,6 +322,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         let mut subblock_outputs = Vec::new();
         let mut subblock_parent_states = Vec::new();
+
+        let mut state_diffs = Vec::new();
 
         while current_block.body.len() as u64 > num_transactions_completed {
             tracing::info!("executing subblock");
@@ -343,7 +346,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
             let num_executed_transactions = subblock_output.receipts.len();
             let upper = num_transactions_completed + num_executed_transactions as u64;
-            let is_last_subblock = upper == executor_block_input.body.len() as u64;
+            let is_last_subblock = upper == current_block.body.len() as u64;
 
             tracing::info!(
                 "successfully executed subblock: num_transactions_completed={}, upper={}",
@@ -372,58 +375,34 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                 vec![subblock_output.requests.into()],
             );
 
+            all_executor_outcomes.push(executor_outcome.clone());
+
             // Save the subblock's `HashedPostState` for debugging.
             let target_post_state = executor_outcome.hash_state_slow();
+
+            state_diffs.push(target_post_state);
 
             let subblock_output = SubblockOutput {
                 receipts,
                 logs_bloom,
-                output_state_diff: target_post_state.clone(),
-                parent_state_root: previous_block.state_root,
-                input_state_diff: all_executor_outcomes.hash_state_slow(),
+                output_state_root: B256::default(),
+                input_state_root: B256::default(),
             };
             subblock_outputs.push(subblock_output);
 
-            // Accumulate this subblock's `ExecutionOutcome` into `all_executor_outcomes`.
-            all_executor_outcomes.extend(executor_outcome);
+            // Accumulate this subblock's `ExecutionOutcome` into `cumulative_executor_outcomes`.
+            cumulative_executor_outcomes.extend(executor_outcome);
 
             // Construct a sparse parent state from the subblock's state requests. The subblock will
             // read from this sparse trie.
             let subblock_state_requests = rpc_db.get_state_requests();
-            let mut before_storage_proofs = Vec::new();
-            for (address, used_keys) in subblock_state_requests.iter() {
-                let keys = used_keys
-                    .iter()
-                    .map(|key| B256::from(*key))
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
+            // Merge the state requests from the subblock into `cumulative_state_requests`.
+            merge_state_requests(&mut cumulative_state_requests, &subblock_state_requests);
 
-                let storage_proof = self
-                    .provider
-                    .get_proof(*address, keys)
-                    .block_id((block_number - 1).into())
-                    .await?;
-                before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
-            }
-
-            let state = EthereumState::from_transition_proofs(
-                previous_block.state_root,
-                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
-                &before_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
-            )?;
-
-            let parent_state_bytes =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&state).unwrap().to_vec();
-            subblock_parent_states.push(parent_state_bytes);
-
-            // Merge the state requests from the subblock into `all_state_requests`.
-            merge_state_requests(&mut all_state_requests, &subblock_state_requests);
+            all_state_requests.push(subblock_state_requests);
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                // parent_state_bytes,
-                // state_diff_bytes: Vec::new(),
                 block_hashes: HashMap::new(),
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
@@ -434,46 +413,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             subblock_input.current_block.body = subblock_input.current_block.body
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
-
-            #[cfg(debug_assertions)]
-            {
-                // // Reconstruct the subblock input exactly as it would be in the client.
-                // let debug_subblock_input = subblock_input.clone();
-                // let mut input = debug_subblock_input
-                //     .current_block
-                //     .with_recovered_senders()
-                //     .expect("failed to recover senders");
-                // input.is_first_subblock = subblock_input.is_first_subblock;
-                // input.is_last_subblock = subblock_input.is_last_subblock;
-
-                // tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
-                // tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
-                // let wrap_ref = WrapDatabaseRef(debug_subblock_input.simple_db);
-                // let debug_execution_output = V::execute(&input, executor_difficulty, wrap_ref)?;
-                // let receipts = debug_execution_output.receipts.clone();
-                // let outcome = ExecutionOutcome::new(
-                //     debug_execution_output.state,
-                //     Receipts::from(debug_execution_output.receipts),
-                //     current_block.header.number,
-                //     vec![debug_execution_output.requests.into()],
-                // );
-
-                // let mut logs_bloom = Bloom::default();
-                // receipts.iter().for_each(|r| {
-                //     logs_bloom.accrue_bloom(&r.bloom_slow());
-                // });
-                // let debug_subblock_output =
-                //     SubblockOutput { receipts, logs_bloom, state_diff: outcome.hash_state_slow() };
-
-                // tracing::info!(
-                //     "Is the debug subblock output equal to the constructed subblock output? {:?}",
-                //     debug_subblock_output == *subblock_outputs.last().unwrap()
-                // );
-                // tracing::info!(
-                //     "Does the reconstructed subblock output match the target post state? {:?}",
-                //     outcome.hash_state_slow() == target_post_state
-                // );
-            }
 
             // Advance subblock
             num_transactions_completed = upper;
@@ -497,8 +436,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut before_storage_proofs = Vec::new();
         let mut after_storage_proofs = Vec::new();
 
-        for (address, used_keys) in all_state_requests.iter() {
-            let modified_keys = all_executor_outcomes
+        for (address, used_keys) in cumulative_state_requests.iter() {
+            let modified_keys = cumulative_executor_outcomes
                 .state()
                 .state
                 .get(address)
@@ -538,9 +477,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
             &after_storage_proofs.iter().map(|item| (item.address, item.clone())).collect(),
         )?;
 
+        let cumulative_state_diffs = cumulative_executor_outcomes.hash_state_slow();
+
         // Update the parent state with the cumulative state diffs from all subblocks.
         let mut mutated_state = parent_state.clone();
-        mutated_state.update(&all_executor_outcomes.hash_state_slow());
+        mutated_state.update(&cumulative_state_diffs);
 
         // Verify the state root.
         let state_root = mutated_state.state_root();
@@ -599,39 +540,74 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let aggregation_input = AggregationInput {
             current_block: V::pre_process_block(&current_block),
             ancestor_headers,
-            // parent_state_bytes: rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state)
-            //     .unwrap()
-            //     .to_vec(),
             bytecodes: rpc_db.get_bytecodes(),
         };
 
         let parent_state_bytes =
             rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
-        let mut cumulative_state_diff = HashedPostState::default();
-        let mut subblock_input_diffs = Vec::new();
+        let mut big_state = parent_state.clone();
         for i in 0..subblock_inputs.len() {
+            let input_root = big_state.state_root();
+            // Get the touched addresses / storage slots in this subblock.
+            let mut touched_state = HashMap::new();
+            for (address, used_keys) in all_state_requests[i].iter() {
+                let modified_keys = all_executor_outcomes[i]
+                    .state()
+                    .state
+                    .get(address)
+                    .map(|account| {
+                        account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .chain(modified_keys.clone().into_iter())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(keccak256)
+                    .collect::<Vec<_>>();
+
+                touched_state.insert(keccak256(address), keys);
+            }
+
+            let mut subblock_parent_state = big_state.clone();
+            let prev_root = subblock_parent_state.state_root();
+            subblock_parent_state.prune(&touched_state);
+            subblock_parent_state.state_trie.invalidate_ref_cache();
+            let new_root = subblock_parent_state.state_root();
+            assert_eq!(prev_root, new_root);
+            subblock_parent_states.push(
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
+            );
+            big_state.update(&state_diffs[i]);
+            let output_root = big_state.state_root();
+
+            subblock_outputs[i].input_state_root = input_root;
+            subblock_outputs[i].output_state_root = output_root;
+
             let subblock_input = &mut subblock_inputs[i];
-            let state_diff_bytes =
-                rkyv::to_bytes::<rkyv::rancor::Error>(&cumulative_state_diff).unwrap();
-            subblock_input_diffs.push(state_diff_bytes.to_vec());
-            subblock_outputs[i].input_state_diff = cumulative_state_diff.clone();
-            // subblock_input.parent_state_bytes = parent_state_bytes.clone();
             subblock_input.block_hashes = block_hashes.clone();
-
-            cumulative_state_diff.extend_ref(&subblock_outputs[i].output_state_diff);
         }
-
-        println!("subblock_input_diffs_1: {:?}", subblock_input_diffs[0]);
 
         let all_subblock_outputs = SubblockHostOutput {
             subblock_inputs,
             subblock_parent_states,
-            subblock_input_diffs,
             subblock_outputs,
             agg_input: aggregation_input,
             agg_parent_state: parent_state_bytes,
         };
+
+        #[cfg(debug_assertions)]
+        {
+            all_subblock_outputs
+                .validate(Some(state_diffs))
+                .map_err(HostError::ClientValidation)?;
+        }
 
         Ok(all_subblock_outputs)
     }
