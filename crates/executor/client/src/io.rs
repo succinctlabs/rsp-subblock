@@ -52,31 +52,6 @@ pub struct SubblockInput {
     pub is_last_subblock: bool,
 }
 
-// impl SubblockInput {
-//     pub fn deserialize_state(&self) -> EthereumState {
-//         println!("cycle-tracker-start: align");
-//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-//         aligned_vec.extend_from_slice(&self.parent_state_bytes);
-//         println!("cycle-tracker-end: align");
-//         println!("cycle-tracker-start: deserialize parent state");
-//         let result = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap();
-//         println!("cycle-tracker-end: deserialize parent state");
-//         result
-//     }
-
-//     pub fn deserialize_state_diff(&self) -> HashedPostState {
-//         println!("cycle-tracker-start: align");
-//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.state_diff_bytes.len());
-//         aligned_vec.extend_from_slice(&self.state_diff_bytes);
-//         println!("cycle-tracker-end: align");
-//         println!("cycle-tracker-start: deserialize state diff");
-//         let result =
-//             rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
-//         println!("cycle-tracker-end: deserialize state diff");
-//         result
-//     }
-// }
-
 /// Everything needed to run the subblock task e2e.
 ///
 /// Necessary data for subblock stdin and agg stdin.
@@ -121,6 +96,7 @@ impl SubblockHostOutput {
             let debug_execution_output =
                 EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
             let receipts = debug_execution_output.receipts.clone();
+            // let requests = debug_execution_output.requests.clone();
             let outcome = ExecutionOutcome::new(
                 debug_execution_output.state,
                 Receipts::from(debug_execution_output.receipts),
@@ -139,6 +115,7 @@ impl SubblockHostOutput {
                 logs_bloom,
                 output_state_root: subblock_parent_state.state_root(),
                 input_state_root: old_state_root,
+                // requests
             };
 
             if debug_subblock_output != subblock_output {
@@ -272,7 +249,8 @@ pub struct SubblockOutput {
     pub receipts: Vec<Receipt>,
     /// The state root before executing this subblock.
     pub input_state_root: B256,
-    // pub requests: Vec<Request>, // This is only needed for pectra.
+    // // This is only needed for pectra.
+    // pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {
