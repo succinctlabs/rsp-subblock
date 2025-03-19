@@ -603,9 +603,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
 
         #[cfg(debug_assertions)]
         {
-            all_subblock_outputs
-                .validate(Some(state_diffs))
-                .map_err(HostError::ClientValidation)?;
+            all_subblock_outputs.validate().map_err(HostError::ClientValidation)?;
         }
 
         Ok(all_subblock_outputs)

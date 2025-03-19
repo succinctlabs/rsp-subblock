@@ -69,7 +69,13 @@ async fn main() -> eyre::Result<()> {
     )?;
 
     let client_input = match (cache_data, provider_config.rpc_url) {
-        (Some(cache_data), _) => cache_data,
+        (Some(cache_data), _) => {
+            #[cfg(debug_assertions)]
+            {
+                cache_data.validate()?;
+            }
+            cache_data
+        }
         (None, Some(rpc_url)) => {
             // Cache not found but we have RPC
             // Setup the provider.

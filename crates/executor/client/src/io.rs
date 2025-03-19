@@ -65,7 +65,7 @@ pub struct SubblockHostOutput {
 }
 
 impl SubblockHostOutput {
-    pub fn validate(&self, state_diffs: Option<Vec<HashedPostState>>) -> Result<(), ClientError> {
+    pub fn validate(&self) -> Result<(), ClientError> {
         let current_block = self.agg_input.current_block.clone();
         let executor_difficulty = current_block.header.difficulty;
         for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
@@ -128,18 +128,6 @@ impl SubblockHostOutput {
                     debug_subblock_output.input_state_root, subblock_output.input_state_root
                 );
                 return Err(ClientError::InvalidSubblockOutput);
-            }
-            let Some(ref state_diffs) = state_diffs else {
-                continue;
-            };
-            let state_diff = state_diffs[i].clone();
-            if outcome.hash_state_slow() != state_diff {
-                eprintln!(
-                    "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
-                    outcome.hash_state_slow().into_sorted().display(),
-                    state_diff.into_sorted().display()
-                );
-                return Err(ClientError::InvalidStateDiff);
             }
         }
         Ok(())
