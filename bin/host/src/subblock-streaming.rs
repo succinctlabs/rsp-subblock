@@ -267,11 +267,13 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    // println!("run again, this time setup is cached.");
-    // cluster_client
-    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-    //     .await
-    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // This is the easiest way to find out how long it takes to run the subblock without setup time.
+    // YUWEN TODO: change the task ui somehow to accept preprocessed setup.
+    println!("run again, this time setup is cached.");
+    cluster_client
+        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
     Ok(result)
 }

@@ -38,5 +38,5 @@ ecdsa-core = { git = "https://github.com/sp1-patches/signatures", tag = "patch-0
 bn = { git = "https://github.com/sp1-patches/bn", tag = "patch-0.6.0-sp1-4.0.0", package = "substrate-bn" }
 sha3 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha3-0.10.8-sp1-4.0.0" }
 
-alloy-primitives = { path = "../../../alloy-core/crates/primitives" }
-ruint = { path = "../../../uint" }
+alloy-primitives = { git = "https://github.com/yuwen01/alloy-core", branch = "yuwen/rkyv20" }
+ruint = { git = "https://github.com/yuwen01/uint", branch = "yuwen/rkyv" }
