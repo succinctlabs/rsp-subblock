@@ -1,4 +1,5 @@
 use alloy_provider::ReqwestProvider;
+use api2::conn::ClusterClientV2;
 use clap::Parser;
 use eth_proofs::EthProofsClient;
 use execute::process_execution_report;
@@ -8,15 +9,17 @@ use rsp_client_executor::{
     CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
 };
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, ProverClient, SP1ProofWithPublicValues, SP1Stdin};
-use sp1_worker::proto::Artifact;
-use sp1_worker::{artifact::ArtifactType, client::ClusterClient, proto::TaskType, ProofOptions};
-use std::path::PathBuf;
+use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_worker::artifact::{ArtifactType, RedisArtifactClient};
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 mod cli;
-use cli::{upload_artifact, ProviderArgs};
+use cli::{schedule_controller, upload_artifact, ProviderArgs};
 
 mod execute;
 
@@ -173,13 +176,30 @@ async fn main() -> eyre::Result<()> {
         // let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
         // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
 
-        let cluster_client = ClusterClient::new();
+        let addr = std::env::var("CLUSTER_V2_RPC").unwrap_or("http://[::1]:50051".to_string());
+        let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
+        let redis_artifact_client = RedisArtifactClient::new(
+            std::env::var("REDIS_NODES")
+                .expect("REDIS_NODES is not set")
+                .split(',')
+                .map(|s| s.to_string())
+                .collect(),
+            std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
+        );
+
         let elf_artifact =
-            upload_artifact(&cluster_client, "subblock_elf", &pk.elf, ArtifactType::Program)
+            upload_artifact(&redis_artifact_client, "subblock_elf", &pk.elf, ArtifactType::Program)
                 .await?;
+
         // Generate the subblock proof.
-        let proof =
-            schedule_controller(elf_artifact.clone(), stdin, &cluster_client, false).await?;
+        let proof = schedule_controller(
+            elf_artifact.clone(),
+            stdin,
+            &mut cluster_client,
+            &redis_artifact_client,
+            false,
+        )
+        .await?;
         client.verify(&proof, &vk).unwrap();
         let elapsed = start.elapsed().as_secs_f32();
 
@@ -215,68 +235,4 @@ fn try_load_input_from_cache(
     } else {
         None
     })
-}
-
-async fn schedule_controller(
-    elf_artifact: Artifact,
-    stdin: SP1Stdin,
-    cluster_client: &ClusterClient,
-    _execute: bool,
-) -> eyre::Result<SP1ProofWithPublicValues> {
-    let stdin_artifact: Artifact =
-        upload_artifact(cluster_client, "subblock_stdin", stdin, ArtifactType::Stdin).await?;
-
-    let proof_options = ProofOptions::subblock();
-    let proof_options_artifact: Artifact = upload_artifact(
-        cluster_client,
-        "subblock_proof_options",
-        proof_options,
-        ArtifactType::UnspecifiedArtifactType,
-    )
-    .await?;
-    // Create an empty artifact for the output
-    let output_artifact: Artifact =
-        cluster_client
-            .create_artifact_blocking("subblock_output", 0)
-            .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
-
-    let proof_id = "yuwen".to_string();
-
-    let input_ids = vec![elf_artifact.id, stdin_artifact.id, proof_options_artifact.id];
-
-    let task_id = cluster_client
-        .create_task(
-            TaskType::Sp1Controller,
-            &input_ids,
-            &[output_artifact.id.clone()],
-            proof_id,
-            None,
-            None,
-        )
-        .await
-        .map_err(|e| eyre::eyre!("Failed to create task: {}", e))?;
-
-    println!("Task created: {}", task_id);
-    cluster_client
-        .wait_tasks(&[task_id.clone()])
-        .await
-        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
-
-    let result: SP1ProofWithPublicValues = output_artifact
-        .download_proof(&cluster_client.http)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
-
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
-
-    // cluster_client
-    //     .wait_tasks(&[task_id])
-    //     .await
-    //     .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
-
-    Ok(result)
 }

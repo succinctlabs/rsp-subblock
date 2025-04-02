@@ -3,25 +3,32 @@
 //! Directly creates an aggregation task.
 
 use alloy_provider::ReqwestProvider;
+use api2::{conn::ClusterClientV2, worker::CreateProofRequest};
 use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use sp1_core_executor::Program;
 use sp1_sdk::{
     include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
     SP1VerifyingKey,
 };
-use std::io::Write;
-use std::path::PathBuf;
+use std::{
+    io::Write,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing_subscriber::{
-    filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
+    field::RecordFields, filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt,
 };
 
 use sp1_worker::{
-    artifact::ArtifactType,
-    client::ClusterClient,
+    artifact::{ArtifactClient, ArtifactType, RedisArtifactClient},
     proto::{Artifact, TaskType},
+    V2Client,
 };
 
 mod execute;
@@ -146,7 +153,39 @@ async fn schedule_task(
 ) -> eyre::Result<SP1ProofWithPublicValues> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
-    let cluster_client = ClusterClient::new();
+    let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
+    let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
+    let artifact_client = RedisArtifactClient::new(
+        std::env::var("REDIS_NODES")
+            .expect("REDIS_NODES is not set")
+            .split(',')
+            .map(|s| s.to_string())
+            .collect(),
+        std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
+    );
+
+    let now: std::time::Duration =
+        SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+
+    let proof_id = format!("rsp_{}", now.as_secs());
+
+    let worker_id = format!("worker_{}", now.as_secs());
+
+    println!("proof_id: {}", proof_id);
+
+    cluster_client
+        .client
+        .client
+        .create_proof(CreateProofRequest {
+            worker_id: worker_id.clone(),
+            proof_id: proof_id.clone(),
+            inputs: vec![],
+            outputs: vec![],
+            requester: "yuwens_mac".to_string(),
+            expires_at: 0,
+        })
+        .await?;
+
     let mut subblock_input_artifacts: Vec<Artifact> =
         Vec::with_capacity(inputs.subblock_inputs.len());
 
@@ -161,8 +200,13 @@ async fn schedule_task(
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
+        let mut hasher = Sha256::new();
+        for v in &stdin.buffer {
+            hasher.update(v);
+        }
+        println!("subblock input: {:?}", hasher.finalize());
         let artifact_handle =
-            upload_artifact(&cluster_client, "subblock_input", &stdin, ArtifactType::Stdin);
+            upload_artifact(&artifact_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
@@ -183,7 +227,7 @@ async fn schedule_task(
     let subblock_input_index =
         subblock_input_artifacts.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
     let subblock_input_index_artifact: Artifact = upload_artifact(
-        &cluster_client,
+        &artifact_client,
         "subblock_input_index",
         subblock_input_index,
         ArtifactType::UnspecifiedArtifactType,
@@ -192,11 +236,11 @@ async fn schedule_task(
 
     // Create artifacts for the subblock stuff.
     let subblock_elf_artifact: Artifact =
-        upload_artifact(&cluster_client, "subblock_elf", subblock_elf, ArtifactType::Program)
+        upload_artifact(&artifact_client, "subblock_elf", subblock_elf, ArtifactType::Program)
             .await?;
 
     let subblock_vk_artifact: Artifact = upload_artifact(
-        &cluster_client,
+        &artifact_client,
         "subblock_vk",
         subblock_vk,
         ArtifactType::UnspecifiedArtifactType,
@@ -204,11 +248,14 @@ async fn schedule_task(
     .await?;
 
     // Create artifacts for the aggregation stuff.
+
+    let program = Program::from(&agg_elf).unwrap();
+    println!("agg program: {:?}", program.hash());
     let agg_elf_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
+        upload_artifact(&artifact_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
 
     let agg_stdin_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
+        upload_artifact(&artifact_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
             .await?;
 
     if execute {
@@ -228,12 +275,9 @@ async fn schedule_task(
     }
 
     // Create an empty artifact for the output
-    let output_artifact: Artifact = cluster_client
+    let output_artifact: Artifact = artifact_client
         .create_artifact_blocking("agg_output", 0)
         .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
-
-    // TODO: make a random proof id.
-    let proof_id = "yuwen".to_string();
 
     let input_ids = vec![
         subblock_elf_artifact.id,
@@ -244,11 +288,12 @@ async fn schedule_task(
     ];
 
     let task_id = cluster_client
+        .client
         .create_task(
-            TaskType::Sp1AggregationTask,
+            TaskType::Sp1SubblockAggregator,
             &input_ids,
             &[output_artifact.id.clone()],
-            proof_id,
+            proof_id.clone(),
             None,
             None,
         )
@@ -258,22 +303,25 @@ async fn schedule_task(
     println!("Task created: {}", task_id);
 
     cluster_client
-        .wait_tasks(&[task_id.clone()])
+        .client
+        .wait_tasks(proof_id.clone(), &[task_id.clone()])
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
-    let result: SP1ProofWithPublicValues = output_artifact
-        .download_proof(&cluster_client.http)
+    let result: SP1ProofWithPublicValues = artifact_client
+        .download_with_type(&output_artifact, ArtifactType::Proof)
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
+    client.verify(&result, &agg_pk.vk)?;
+
     // This is the easiest way to find out how long it takes to run the subblock without setup time.
     // YUWEN TODO: change the task ui somehow to accept preprocessed setup.
-    println!("run again, this time setup is cached.");
-    cluster_client
-        .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
+    // println!("run again, this time setup is cached.");
+    // cluster_client
+    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
+    //     .await
+    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
     Ok(result)
 }
