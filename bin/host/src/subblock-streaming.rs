@@ -137,10 +137,14 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let mut proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
-    let block_hash = proof.public_values.read::<B256>();
+    let (duration, proof_id) =
+        schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
 
-    println!("block hash: {}", block_hash);
+    let mut debug_log_file =
+        std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
+    debug_log_file
+        .write_all(format!("{}, {}, {}\n", args.block_number, proof_id, duration).as_bytes())
+        .unwrap();
 
     Ok(())
 }
@@ -150,7 +154,7 @@ async fn schedule_task(
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-) -> eyre::Result<SP1ProofWithPublicValues> {
+) -> eyre::Result<(String, String)> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
@@ -279,6 +283,12 @@ async fn schedule_task(
         .create_artifact_blocking("agg_output", 0)
         .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
 
+    // Create an empty artifact for the duration
+    let duration_artifact: Artifact =
+        artifact_client
+            .create_artifact_blocking("agg_duration", 0)
+            .map_err(|e| eyre::eyre!("Failed to create duration artifact: {}", e))?;
+
     let input_ids = vec![
         subblock_elf_artifact.id,
         subblock_input_index_artifact.id,
@@ -292,7 +302,7 @@ async fn schedule_task(
         .create_task(
             TaskType::Sp1SubblockAggregator,
             &input_ids,
-            &[output_artifact.id.clone()],
+            &[output_artifact.id.clone(), duration_artifact.id.clone()],
             proof_id.clone(),
             None,
             None,
@@ -313,6 +323,11 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
+    let duration: String = artifact_client
+        .download_with_type(&duration_artifact, ArtifactType::UnspecifiedArtifactType)
+        .await
+        .map_err(|e| eyre::eyre!("Failed to download duration: {}", e))?;
+
     client.verify(&result, &agg_pk.vk)?;
 
     // This is the easiest way to find out how long it takes to run the subblock without setup time.
@@ -323,7 +338,7 @@ async fn schedule_task(
     //     .await
     //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
-    Ok(result)
+    Ok((duration, proof_id))
 }
 
 /// Constructs the aggregation stdin, sans the subblock proofs.
