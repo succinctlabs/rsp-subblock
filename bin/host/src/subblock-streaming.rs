@@ -76,9 +76,9 @@ async fn main() -> eyre::Result<()> {
     // Intialize the environment variables.
     dotenv::dotenv().ok();
 
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
+    // if std::env::var("RUST_LOG").is_err() {
+    //     std::env::set_var("RUST_LOG", "info");
+    // }
 
     // Initialize the logger.
     tracing_subscriber::registry().with(fmt::layer()).with(EnvFilter::from_default_env()).init();
@@ -137,8 +137,14 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
+    let (proof_id, proof) = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
     println!("proof: {:?}", proof);
+
+    let mut debug_log_file =
+        std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
+    debug_log_file
+        .write_all(format!("{}, {}, {}\n", args.block_number, proof_id, proof).as_bytes())
+        .unwrap();
     // let block_hash = proof.public_values.read::<B256>();
 
     // println!("block hash: {}", block_hash);
@@ -151,7 +157,7 @@ async fn schedule_task(
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-) -> eyre::Result<String> {
+) -> eyre::Result<(String, String)> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
@@ -201,11 +207,22 @@ async fn schedule_task(
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
-        let mut hasher = Sha256::new();
-        for v in &stdin.buffer {
-            hasher.update(v);
+        #[cfg(debug_assertions)]
+        {
+            // Print a hash of the stdin.
+            let mut hasher = Sha256::new();
+            for v in &stdin.buffer {
+                hasher.update(v);
+            }
+            println!("subblock input: {:?}", hasher.finalize());
+
+            // Save the elf/stdin pair to the dump directory.
+            let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
+            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
+            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
+            std::fs::write(elf_path, &subblock_elf)?;
+            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
-        println!("subblock input: {:?}", hasher.finalize());
         let artifact_handle =
             upload_artifact(&artifact_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
@@ -250,8 +267,8 @@ async fn schedule_task(
 
     // Create artifacts for the aggregation stuff.
 
-    let program = Program::from(&agg_elf).unwrap();
-    println!("agg program: {:?}", program.hash());
+    // let program = Program::from(&agg_elf).unwrap();
+    // println!("agg program: {:?}", program.hash());
     let agg_elf_artifact: Artifact =
         upload_artifact(&artifact_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
 
@@ -324,7 +341,7 @@ async fn schedule_task(
     //     .await
     //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
 
-    Ok(result)
+    Ok((proof_id, result))
 }
 
 /// Constructs the aggregation stdin, sans the subblock proofs.
