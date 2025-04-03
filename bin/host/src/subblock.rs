@@ -152,6 +152,16 @@ async fn main() -> eyre::Result<()> {
                 execution_report.total_instruction_count()
             );
         }
+
+        // Write the elf and stdin to the dump directory.
+        if let Ok(dump_dir) = std::env::var("DUMP_DIR") {
+            let dump_dir = PathBuf::from(dump_dir);
+            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
+            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
+            std::fs::write(elf_path, &subblock_pk.elf)?;
+            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
+        }
+
         // Generate the subblock proof.
         let proof = schedule_controller(
             elf_artifact.clone(),
@@ -161,7 +171,6 @@ async fn main() -> eyre::Result<()> {
             args.execute,
         )
         .await?;
-
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 

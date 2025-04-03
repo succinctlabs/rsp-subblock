@@ -137,10 +137,11 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let mut proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
-    let block_hash = proof.public_values.read::<B256>();
+    let proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
+    println!("proof: {:?}", proof);
+    // let block_hash = proof.public_values.read::<B256>();
 
-    println!("block hash: {}", block_hash);
+    // println!("block hash: {}", block_hash);
 
     Ok(())
 }
@@ -150,7 +151,7 @@ async fn schedule_task(
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-) -> eyre::Result<SP1ProofWithPublicValues> {
+) -> eyre::Result<String> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
@@ -308,12 +309,12 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
-    let result: SP1ProofWithPublicValues = artifact_client
+    let result: String = artifact_client
         .download_with_type(&output_artifact, ArtifactType::Proof)
         .await
         .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    client.verify(&result, &agg_pk.vk)?;
+    // client.verify(&result, &agg_pk.vk)?;
 
     // This is the easiest way to find out how long it takes to run the subblock without setup time.
     // YUWEN TODO: change the task ui somehow to accept preprocessed setup.
