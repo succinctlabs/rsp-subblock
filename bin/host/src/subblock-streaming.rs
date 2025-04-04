@@ -5,7 +5,6 @@
 use alloy_provider::ReqwestProvider;
 use api2::{conn::ClusterClientV2, worker::CreateProofRequest};
 use clap::Parser;
-use reth_primitives::B256;
 use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
@@ -21,8 +20,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tracing_subscriber::{
-    field::RecordFields, filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt,
+    filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 use sp1_worker::{
@@ -138,7 +136,7 @@ async fn main() -> eyre::Result<()> {
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     let (duration, proof_id) =
-        schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
+        schedule_task(subblock_pk, agg_pk, client_input, args.execute, args.block_number).await?;
 
     let mut debug_log_file =
         std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
@@ -154,6 +152,7 @@ async fn schedule_task(
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
+    block_number: u64,
 ) -> eyre::Result<(String, String)> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
@@ -222,7 +221,15 @@ async fn schedule_task(
             debug_log_file
                 .write_all(format!("subblock, {}\n", report.total_instruction_count()).as_bytes())
                 .unwrap();
+
+            // Write the subblock stdin and elf to subblock_{i}/program.bin and subblock_{i}/stdin.bin
+            let subblock_input_dir = format!("{}_subblock_{}", block_number, i);
+            std::fs::create_dir_all(&subblock_input_dir).unwrap();
+            std::fs::write(format!("{}/program.bin", subblock_input_dir), &subblock_elf).unwrap();
+            let stdin = bincode::serialize(&stdin).unwrap();
+            std::fs::write(format!("{}/stdin.bin", subblock_input_dir), stdin).unwrap();
         }
+
         let artifact = artifact_handle.await?;
         subblock_input_artifacts.push(artifact);
     }
