@@ -9,6 +9,7 @@ set -e
 CACHE_DIR="subblock-cache-8m"
 CHAIN_ID="1"
 CARGO_BIN="subblock-streaming"
+CSV_FILE="evaluation_blocks.csv"
 # --- End Configuration ---
 
 echo "Script started. Current working directory: $(pwd)"
@@ -21,42 +22,41 @@ if [ ! -d "$CACHE_DIR" ]; then
 fi
 echo "Cache directory '$CACHE_DIR' exists."
 
+# Check if the CSV file exists and is readable
+if [ ! -f "$CSV_FILE" ]; then
+    echo "Error: CSV file '$CSV_FILE' not found."
+    exit 1
+fi
+if [ ! -r "$CSV_FILE" ]; then
+    echo "Error: CSV file '$CSV_FILE' is not readable."
+    exit 1
+fi
+echo "CSV file '$CSV_FILE' found and is readable."
+
 # Explicitly check directory permissions from script perspective
 echo "Directory permissions:"
 ls -ld "$CACHE_DIR"
 
-echo "Attempting to list .bin files in '$CACHE_DIR' using ls:"
-# Use ls to explicitly test the glob pattern BEFORE the loop. Capture output/errors.
-# Using || true to prevent set -e from exiting if ls finds nothing
-ls -l "$CACHE_DIR"/input/1/*.bin || echo "ls command found no .bin files or failed."
 echo "-------------------------------------"
-
-
-echo "Starting subblock streaming runs..."
+echo "Starting subblock streaming runs from CSV file: $CSV_FILE"
 echo "Using cache directory: $CACHE_DIR"
-echo "Scanning for .bin files with bash glob..."
 echo "-------------------------------------"
 
-# Keep track of how many files we process
+# Keep track of how many blocks we process
 processed_count=0
 
-# Loop through all files ending in .bin in the specified directory
-# Using nullglob ensures the loop doesn't run if no files match
-shopt -s nullglob
-for filepath in "$CACHE_DIR"/input/1/*.bin; do
-    # Extract the filename from the full path
-    filename=$(basename "$filepath")
-
-    # Extract the block number by removing the '.bin' extension
-    block_number="${filename%.bin}"
+# Read the CSV file line by line, skipping the header
+tail -n +2 "$CSV_FILE" | while IFS= read -r block_number; do
+    # Remove potential carriage returns if the file came from Windows
+    block_number=$(echo "$block_number" | tr -d '\r')
 
     # Basic validation: Check if block_number looks like a valid number
     if ! [[ "$block_number" =~ ^[0-9]+$ ]]; then
-        echo "Warning: Skipping file '$filename'. Extracted name '$block_number' does not look like a valid number."
-        continue # Skip to the next file
+        echo "Warning: Skipping line. Extracted value '$block_number' does not look like a valid number."
+        continue # Skip to the next line
     fi
 
-    echo "Processing file: $filename --> Block Number: $block_number"
+    echo "Processing Block Number: $block_number"
 
     # Construct and run the command
     cargo run --profile release --bin "$CARGO_BIN" -- \
@@ -69,14 +69,11 @@ for filepath in "$CACHE_DIR"/input/1/*.bin; do
     processed_count=$((processed_count + 1))
 done
 
-# Turn nullglob off again (good practice)
-shopt -u nullglob
-
 # Report final status
 if [ "$processed_count" -eq 0 ]; then
-    echo "Bash glob loop did not find any .bin files to process in '$CACHE_DIR'."
+    echo "No valid block numbers found in '$CSV_FILE' to process."
 else
-    echo "All processing complete. Processed $processed_count files."
+    echo "All processing complete. Processed $processed_count blocks from '$CSV_FILE'."
 fi
 
 exit 0
