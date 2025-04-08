@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Analyzes the gas usage of transactions in a given block range.
+Analyzes the gas usage of transactions in specific blocks listed in a CSV file.
 
-Usage: python3 analyze_blocks.py <start_block> <end_block>
+Reads block numbers from 'evaluation_blocks.csv' and outputs analysis to
+'evaluation_blocks_gas_analysis.csv'.
 """
 
 import sys
@@ -14,31 +15,43 @@ from dotenv import load_dotenv
 def main():
     # Load environment variables from .env file
     load_dotenv()
-    
-    # Check if the correct number of arguments are provided
-    if len(sys.argv) != 3:
-        print("Usage: python3 analyze_blocks.py <start_block> <end_block>")
-        sys.exit(1)
 
-    # Parse command line arguments
+    # Define the input CSV filename
+    input_csv_filename = "evaluation_blocks.csv"
+    blocks_to_process = []
+
+    # Read block numbers from the input CSV file
     try:
-        start_block = int(sys.argv[1])
-        end_block = int(sys.argv[2])
-    except ValueError:
-        print("Error: Block numbers must be integers.")
-        sys.exit(1)
+        with open(input_csv_filename, 'r', newline='') as infile:
+            reader = csv.reader(infile)
+            header = next(reader) # Skip header row
+            print(f"Reading blocks from {input_csv_filename}, skipping header: {header}")
+            for row in reader:
+                if row: # Ensure row is not empty
+                    try:
+                        # Assuming block number is in the first column
+                        block_number = int(row[0])
+                        blocks_to_process.append(block_number)
+                    except (ValueError, IndexError):
+                        print(f"Warning: Skipping invalid row in {input_csv_filename}: {row}", file=sys.stderr)
+        if not blocks_to_process:
+            print(f"Error: No valid block numbers found in {input_csv_filename}.")
+            sys.exit(1)
+        print(f"Found {len(blocks_to_process)} blocks to process.")
 
-    # Ensure start_block is less than or equal to end_block
-    if start_block > end_block:
-        print("Error: Start block must be less than or equal to end block.")
+    except FileNotFoundError:
+        print(f"Error: Input file '{input_csv_filename}' not found.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading {input_csv_filename}: {e}")
         sys.exit(1)
 
     # Get Ethereum RPC URL from .env file
-    ethereum_rpc_url = os.environ.get('RPC_1')
+    ethereum_rpc_url = os.environ.get('RPC_SLOW')
     if not ethereum_rpc_url:
-        print("Error: RPC_1 variable not found in .env file.")
-        print("Please create a .env file with RPC_1=your_ethereum_node_url")
-        print("Example: RPC_1=https://mainnet.infura.io/v3/YOUR_INFURA_API_KEY")
+        print("Error: RPC_SLOW variable not found in .env file.")
+        print("Please create a .env file with RPC_SLOW=your_ethereum_node_url")
+        print("Example: RPC_SLOW=https://mainnet.infura.io/v3/YOUR_INFURA_API_KEY")
         sys.exit(1)
 
     w3 = Web3(Web3.HTTPProvider(ethereum_rpc_url))
@@ -46,21 +59,21 @@ def main():
     # Check if connected to Ethereum node
     if not w3.is_connected():
         print("Error: Failed to connect to Ethereum node.")
-        print("Please check that the RPC_1 in your .env file contains a valid Ethereum node URL.")
+        print("Please check that the RPC_SLOW in your .env file contains a valid Ethereum node URL.")
         sys.exit(1)
 
     # Create CSV file for output
-    csv_filename = f"blocks_{start_block}_to_{end_block}_gas_analysis.csv"
+    csv_filename = "evaluation_blocks_gas_analysis.csv" # Updated filename
     with open(csv_filename, 'w', newline='') as csvfile:
         csv_writer = csv.writer(csvfile)
         
         # Write CSV header
         csv_writer.writerow(['Block Number', 'Transaction Hash', 'Gas Limit', 'Gas Used'])
         
-        # Process each block in the range
-        process_blocks(w3, start_block, end_block, csv_writer)
+        # Process each block from the list
+        process_blocks(w3, blocks_to_process, csv_writer) # Updated call
     
-    print(f"Analysis complete. Results saved to {csv_filename}")
+    print(f"Analysis complete. Results saved to {csv_filename}") # Updated message
 
 def get_transactions(block):
     """Extract transactions from a block, handling different block formats."""
@@ -86,10 +99,11 @@ def get_transaction_hash(tx):
         return tx['hash']
     return None
 
-def process_blocks(w3, start_block, end_block, csv_writer):
-    """Process each block in the range and output the transaction that used the most gas to CSV."""
-    for block_number in range(start_block, end_block + 1):
-        print(f"Processing block {block_number}")
+def process_blocks(w3, block_numbers, csv_writer): # Updated signature
+    """Process each block in the provided list and output the transaction that used the most gas to CSV."""
+    total_blocks = len(block_numbers)
+    for i, block_number in enumerate(block_numbers): # Iterate over the list
+        print(f"Processing block {block_number} ({i+1}/{total_blocks})")
         try:
             # Get the block with full transaction details
             block = w3.eth.get_block(block_number, full_transactions=True)
