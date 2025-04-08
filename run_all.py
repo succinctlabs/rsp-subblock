@@ -12,9 +12,9 @@ import itertools # For the counter
 CACHE_DIR = "subblock-bench-8m"
 CHAIN_ID = "1"
 CARGO_BIN = "subblock-streaming"
-CSV_FILE = "hard_blocks.csv"
+CSV_FILE = "evaluation_blocks.csv"
 NUM_WORKERS = 1 # Number of parallel processes to run (used only in concurrent mode)
-START_ROW = 0 # 1-based index for the *data* row to start processing from (after header)
+START_ROW = 1 # 1-based index for the *data* row to start processing from (after header)
 EXECUTION_MODE = "concurrent" # Options: "concurrent", "serial"
 # --- End Configuration ---
 
