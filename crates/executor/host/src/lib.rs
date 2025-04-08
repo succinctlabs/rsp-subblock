@@ -2,11 +2,13 @@ mod error;
 pub use error::Error as HostError;
 use std::{
     collections::{BTreeSet, HashMap},
+    future::IntoFuture,
     marker::PhantomData,
 };
 
 use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
+use itertools::Itertools;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::CacheDB;
@@ -20,6 +22,7 @@ use rsp_client_executor::{
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
 use rsp_rpc_db::RpcDb;
+use tokio::task::JoinSet;
 
 /// An executor that fetches data from a [Provider] to execute blocks in the [ClientExecutor].
 #[derive(Debug, Clone)]
@@ -436,39 +439,55 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut before_storage_proofs = Vec::new();
         let mut after_storage_proofs = Vec::new();
 
-        for (address, used_keys) in cumulative_state_requests.iter() {
-            let modified_keys = cumulative_executor_outcomes
-                .state()
-                .state
-                .get(address)
-                .map(|account| {
-                    account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .collect::<Vec<_>>();
+        for chunk in cumulative_state_requests.into_iter().chunks(10).into_iter() {
+            let mut before_handles = Vec::with_capacity(10);
+            let mut after_handles = Vec::with_capacity(10);
+            for (address, used_keys) in chunk {
+                let modified_keys = cumulative_executor_outcomes
+                    .state()
+                    .state
+                    .get(&address)
+                    .map(|account| {
+                        account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<Vec<_>>();
 
-            let keys = used_keys
-                .iter()
-                .map(|key| B256::from(*key))
-                .chain(modified_keys.clone().into_iter())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .chain(modified_keys.clone().into_iter())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
 
-            let storage_proof = self
-                .provider
-                .get_proof(*address, keys.clone())
-                .block_id((block_number - 1).into())
-                .await?;
-            before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+                before_handles.push(
+                    self.provider
+                        .get_proof(address, keys.clone())
+                        .block_id((block_number - 1).into())
+                        .into_future(),
+                );
 
-            let storage_proof = self
-                .provider
-                .get_proof(*address, modified_keys)
-                .block_id((block_number).into())
-                .await?;
-            after_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+                after_handles.push(
+                    self.provider
+                        .get_proof(address, modified_keys)
+                        .block_id((block_number).into())
+                        .into_future(),
+                );
+            }
+            before_storage_proofs.extend(
+                futures::future::join_all(before_handles).await.iter().map(|p| {
+                    let p = p.as_ref().unwrap();
+                    eip1186_proof_to_account_proof(p.clone())
+                }),
+            );
+            after_storage_proofs.extend(futures::future::join_all(after_handles).await.iter().map(
+                |p| {
+                    let p = p.as_ref().unwrap();
+                    eip1186_proof_to_account_proof(p.clone())
+                },
+            ));
         }
 
         let parent_state = EthereumState::from_transition_proofs(

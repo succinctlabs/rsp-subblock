@@ -14,6 +14,7 @@ CHAIN_ID = "1"
 CARGO_BIN = "subblock-streaming"
 CSV_FILE = "evaluation_blocks.csv"
 NUM_WORKERS = 1 # Number of parallel processes to run
+START_ROW = 20 # 1-based index for the *data* row to start processing from (after header)
 # --- End Configuration ---
 
 # --- Globals for Signal Handling & Progress ---
@@ -195,7 +196,7 @@ def run_cargo_for_block(block_number, total_blocks):
 
 def main():
     """Main function to execute the subblock streaming process in parallel."""
-    global executor_instance # Allow assignment to the global
+    global executor_instance, START_ROW # Allow assignment to the global
 
     # Register the signal handler for SIGINT
     original_sigint_handler = signal.getsignal(signal.SIGINT)
@@ -203,6 +204,7 @@ def main():
 
     print(f"Script started. Current working directory: {os.getcwd()}")
     print(f"Running with {NUM_WORKERS} parallel workers.")
+    print(f"Starting processing from CSV data row: {START_ROW}") # Log start row
     print("Press Ctrl+C to initiate graceful shutdown.")
 
     # --- Pre-run Checks ---
@@ -226,19 +228,34 @@ def main():
 
     # --- Read and Validate Block Numbers ---
     block_numbers_to_process = []
+    skipped_rows_count = 0
+    total_rows_in_file = 0 # Count total data rows for context
     try:
         with open(CSV_FILE, 'r', newline='') as infile:
             reader = csv.reader(infile)
-            header = next(reader) # Skip the header row
-            print(f"Skipped header: {header}")
+            try:
+                header = next(reader) # Read header row (Row 1 overall)
+                print(f"Skipped header: {header}")
+            except StopIteration:
+                print("Error: CSV file is empty.", file=sys.stderr)
+                sys.exit(1)
 
-            for i, row in enumerate(reader):
-                if not row: # Skip empty rows
-                    # print(f"Warning: Skipping empty row {i+2}.") # Can be noisy
+            # Iterate through data rows (starting from overall row 2)
+            for i, row in enumerate(reader, start=1): # i is now 1-based data row index
+                total_rows_in_file += 1
+                if not row:
+                    print(f"Warning: Skipping empty data row {i}.")
+                    continue # Skip empty rows regardless of start row
+
+                # Skip rows before the desired start row
+                if i < START_ROW:
+                    skipped_rows_count += 1
                     continue
+
+                # Validate and add block number
                 block_number_str = row[0].strip()
                 if not block_number_str.isdigit():
-                    print(f"Warning: Skipping row {i+2}. Value '{block_number_str}' is not a valid number.")
+                    print(f"Warning: Skipping data row {i}. Value '{block_number_str}' is not a valid number.")
                     continue
                 block_numbers_to_process.append(block_number_str)
 
@@ -249,11 +266,16 @@ def main():
         print(f"An unexpected error occurred reading CSV: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if skipped_rows_count > 0:
+        print(f"Skipped {skipped_rows_count} data rows before row {START_ROW}.")
+
     if not block_numbers_to_process:
-        print("No valid block numbers found in CSV file. Exiting.")
+        print(f"No valid block numbers found in CSV file at or after data row {START_ROW}. Exiting.")
         sys.exit(0)
 
-    print(f"Found {len(block_numbers_to_process)} valid block numbers to process.")
+    # --- Get Total Count for Progress ---
+    total_blocks_to_process = len(block_numbers_to_process) # This is now the count of blocks *actually* being processed
+    print(f"Found {total_blocks_to_process} valid block numbers to process (out of {total_rows_in_file} total data rows).")
     print("-" * 37)
     print(f"Starting parallel processing using cache directory: {CACHE_DIR}")
     print("-" * 37)
@@ -274,7 +296,7 @@ def main():
                         results["skipped"] += 1
                         continue
                     # Pass total_blocks_to_process to the worker function
-                    future = executor.submit(run_cargo_for_block, bn, len(block_numbers_to_process))
+                    future = executor.submit(run_cargo_for_block, bn, total_blocks_to_process)
                     futures.append(future)
 
             print(f"Submitted {len(futures)} tasks to the executor.")
@@ -337,12 +359,14 @@ def main():
 
     print("Processing finished or interrupted.")
     print(f"Summary:")
-    print(f"  Total blocks in CSV:    {total_attempted}")
+    print(f"  Total data rows in CSV: {total_rows_in_file}")
+    print(f"  Data rows skipped at start: {skipped_rows_count}")
+    print(f"  Blocks attempted:       {total_attempted}")
     print(f"  Tasks submitted:        {len(futures)}")
     print(f"  Successfully processed: {processed_count}")
     print(f"  Failed:                 {failed_count}")
     print(f"  Cancelled (Ctrl+C):     {cancelled_count}")
-    print(f"  Skipped (shutdown):     {skipped_count}")
+    print(f"  Skipped (during run):   {skipped_count}")
     print("-" * 37)
 
     # Exit with error code if any tasks failed or were cancelled unexpectedly
