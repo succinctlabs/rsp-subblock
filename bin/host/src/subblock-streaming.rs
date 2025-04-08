@@ -5,11 +5,15 @@
 use alloy_provider::ReqwestProvider;
 use api2::{conn::ClusterClientV2, worker::CreateProofRequest};
 use clap::Parser;
+use reth_primitives::{Block, B256};
 use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey};
+use sp1_sdk::{
+    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
+    SP1VerifyingKey,
+};
 use std::{
     io::Write,
     path::PathBuf,
@@ -43,6 +47,9 @@ struct HostArgs {
     /// Whether to pre-execute the block.
     #[clap(long)]
     execute: bool,
+    /// Whether we are running in a simulator or not.
+    #[clap(long)]
+    simulate: bool,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
@@ -131,34 +138,33 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let (proof_id, proof, total_cycles, max_cycles) =
-        schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
-    println!("proof: {:?}", proof);
+    let proof = schedule_task(
+        subblock_pk,
+        args.block_number,
+        agg_pk,
+        client_input,
+        args.execute,
+        args.simulate,
+    )
+    .await?;
 
-    let mut debug_log_file =
-        std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
-    debug_log_file
-        .write_all(
-            format!(
-                "{}, {}, {}, {}, {}\n",
-                args.block_number, proof_id, proof, total_cycles, max_cycles
-            )
-            .as_bytes(),
-        )
-        .unwrap();
-    // let block_hash = proof.public_values.read::<B256>();
+    if let Some(mut proof) = proof {
+        let block_hash = proof.public_values.read::<B256>();
 
-    // println!("block hash: {}", block_hash);
+        println!("block hash: {}", block_hash);
+    }
 
     Ok(())
 }
 
 async fn schedule_task(
     subblock_pk: SP1ProvingKey,
+    block_number: u64,
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-) -> eyre::Result<(String, String, u64, u64)> {
+    simulate: bool,
+) -> eyre::Result<Option<SP1ProofWithPublicValues>> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
@@ -212,13 +218,6 @@ async fn schedule_task(
         stdin.write_vec(parent_state.clone());
         #[cfg(debug_assertions)]
         {
-            // Print a hash of the stdin.
-            let mut hasher = Sha256::new();
-            for v in &stdin.buffer {
-                hasher.update(v);
-            }
-            println!("subblock input: {:?}", hasher.finalize());
-
             // Save the elf/stdin pair to the dump directory.
             let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
             let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
@@ -268,9 +267,6 @@ async fn schedule_task(
     .await?;
 
     // Create artifacts for the aggregation stuff.
-
-    // let program = Program::from(&agg_elf).unwrap();
-    // println!("agg program: {:?}", program.hash());
     let agg_elf_artifact: Artifact =
         upload_artifact(&artifact_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
 
@@ -324,22 +320,35 @@ async fn schedule_task(
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
-    let result: String = artifact_client
-        .download_with_type(&output_artifact, ArtifactType::Proof)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+    if simulate {
+        let result: String = artifact_client
+            .download_with_type(&output_artifact, ArtifactType::Proof)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    // client.verify(&result, &agg_pk.vk)?;
-
-    // This is the easiest way to find out how long it takes to run the subblock without setup time.
-    // YUWEN TODO: change the task ui somehow to accept preprocessed setup.
-    // println!("run again, this time setup is cached.");
-    // cluster_client
-    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-    //     .await
-    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
-
-    Ok((proof_id, result, total_cycles, max_cycles))
+        let mut debug_log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(DEBUG_LOG_FILE.clone())
+            .unwrap();
+        debug_log_file
+            .write_all(
+                format!(
+                    "{}, {}, {}, {}, {}\n",
+                    block_number, proof_id, result, total_cycles, max_cycles
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        Ok(None)
+    } else {
+        let result: SP1ProofWithPublicValues = artifact_client
+            .download_with_type(&output_artifact, ArtifactType::Proof)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+        client.verify(&result, &agg_pk.vk)?;
+        Ok(Some(result))
+    }
 }
 
 /// Constructs the aggregation stdin, sans the subblock proofs.

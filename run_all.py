@@ -122,6 +122,7 @@ def run_cargo_for_block(block_number, total_blocks):
         "--chain-id", CHAIN_ID,
         "--cache-dir", CACHE_DIR,
         "--execute"
+        "--simulate",
     ]
 
     proc = None
