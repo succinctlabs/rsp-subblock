@@ -1,9 +1,12 @@
 mod error;
 pub use error::Error as HostError;
+use reth_trie::AccountProof;
 use std::{
     collections::{BTreeSet, HashMap},
     future::IntoFuture,
     marker::PhantomData,
+    sync::Arc,
+    time::Duration,
 };
 
 use alloy_provider::{network::AnyNetwork, Provider};
@@ -23,12 +26,18 @@ use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
 use rsp_rpc_db::RpcDb;
 use tokio::task::JoinSet;
+use tokio::time::sleep;
+
+/// The maximum number of times to retry fetching a proof.
+const MAX_PROOF_RETRIES: u32 = 3;
+/// The initial backoff duration for proof fetching retries.
+const INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 
 /// An executor that fetches data from a [Provider] to execute blocks in the [ClientExecutor].
 #[derive(Debug, Clone)]
 pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> {
     /// The provider which fetches data.
-    pub provider: P,
+    pub provider: Arc<P>,
     /// A phantom type to make the struct generic over the transport.
     pub phantom: PhantomData<T>,
 }
@@ -48,10 +57,50 @@ fn merge_state_requests(
     }
 }
 
-impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P> {
+impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExecutor<T, P> {
     /// Create a new [`HostExecutor`] with a specific [Provider] and [Transport].
     pub fn new(provider: P) -> Self {
-        Self { provider, phantom: PhantomData }
+        Self { provider: Arc::new(provider), phantom: PhantomData }
+    }
+
+    async fn get_proof(
+        provider: Arc<P>,
+        address: Address,
+        keys: Vec<B256>,
+        block_number: u64,
+    ) -> Result<AccountProof, HostError> {
+        let mut attempts = 0;
+        let mut backoff = INITIAL_RETRY_BACKOFF;
+
+        loop {
+            match provider.get_proof(address, keys.clone()).block_id((block_number).into()).await {
+                Ok(proof) => return Ok(eip1186_proof_to_account_proof(proof)),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= MAX_PROOF_RETRIES {
+                        tracing::error!(
+                            "Failed to get proof for address {} at block {} after {} attempts: {:?}",
+                            address,
+                            block_number,
+                            attempts,
+                            e
+                        );
+                        // Consider returning a more specific error if needed
+                        return Err(HostError::Transport(e));
+                    }
+                    tracing::warn!(
+                        "Attempt {} failed to get proof for address {} at block {}. Retrying in {:?}...",
+                        attempts,
+                        address,
+                        block_number,
+                        backoff
+                    );
+                    sleep(backoff).await;
+                    // Exponential backoff
+                    backoff *= 2;
+                }
+            }
+        }
     }
 
     /// Executes the block with the given block number.
@@ -440,8 +489,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut after_storage_proofs = Vec::new();
 
         for chunk in cumulative_state_requests.into_iter().chunks(10).into_iter() {
-            let mut before_handles = Vec::with_capacity(10);
-            let mut after_handles = Vec::with_capacity(10);
+            let mut before_handles = JoinSet::new();
+            let mut after_handles = JoinSet::new();
             for (address, used_keys) in chunk {
                 let modified_keys = cumulative_executor_outcomes
                     .state()
@@ -462,32 +511,21 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
                     .into_iter()
                     .collect::<Vec<_>>();
 
-                before_handles.push(
-                    self.provider
-                        .get_proof(address, keys.clone())
-                        .block_id((block_number - 1).into())
-                        .into_future(),
-                );
+                let provider_clone = self.provider.clone();
 
-                after_handles.push(
-                    self.provider
-                        .get_proof(address, modified_keys)
-                        .block_id((block_number).into())
-                        .into_future(),
-                );
+                before_handles.spawn(async move {
+                    Self::get_proof(provider_clone, address, keys, block_number - 1).await.unwrap()
+                });
+
+                let provider_clone = self.provider.clone();
+                after_handles.spawn(async move {
+                    Self::get_proof(provider_clone, address, modified_keys, block_number)
+                        .await
+                        .unwrap()
+                });
             }
-            before_storage_proofs.extend(
-                futures::future::join_all(before_handles).await.iter().map(|p| {
-                    let p = p.as_ref().unwrap();
-                    eip1186_proof_to_account_proof(p.clone())
-                }),
-            );
-            after_storage_proofs.extend(futures::future::join_all(after_handles).await.iter().map(
-                |p| {
-                    let p = p.as_ref().unwrap();
-                    eip1186_proof_to_account_proof(p.clone())
-                },
-            ));
+            before_storage_proofs.extend(before_handles.join_all().await);
+            after_storage_proofs.extend(after_handles.join_all().await);
         }
 
         let parent_state = EthereumState::from_transition_proofs(
