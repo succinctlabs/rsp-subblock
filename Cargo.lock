@@ -765,7 +765,7 @@ checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 [[package]]
 name = "api2"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#067d29ce6d2c2177ec4b040554ca7580bfb2c5ef"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#d4c867aa6d5fdf2048f974ca89863f9096705dc1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8219,7 +8219,7 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#067d29ce6d2c2177ec4b040554ca7580bfb2c5ef"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#d4c867aa6d5fdf2048f974ca89863f9096705dc1"
 dependencies = [
  "anyhow",
  "async-channel",

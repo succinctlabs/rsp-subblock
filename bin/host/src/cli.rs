@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy_provider::{network::AnyNetwork, Provider as _, ReqwestProvider};
 use api2::conn::ClusterConnection;
-use api2::worker::CreateProofRequest;
+use api2::worker::CreateDummyProofRequest;
 use clap::Parser;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -132,11 +132,9 @@ pub(crate) async fn schedule_controller<A: ArtifactClient>(
     cluster_client
         .client
         .client
-        .create_proof(CreateProofRequest {
+        .create_dummy_proof(CreateDummyProofRequest {
             worker_id: worker_id.clone(),
             proof_id: proof_id.clone(),
-            inputs: vec![],
-            outputs: vec![],
             requester: "yuwens_mac".to_string(),
             expires_at: 0,
         })
