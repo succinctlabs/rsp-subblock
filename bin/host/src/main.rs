@@ -10,11 +10,9 @@ use rsp_client_executor::{
 };
 use rsp_host_executor::HostExecutor;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
-use sp1_worker::artifact::{ArtifactType, RedisArtifactClient};
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use sp1_worker::artifact::ArtifactType;
+use sp1_worker::redis::RedisArtifactClient;
+use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };

@@ -23,8 +23,9 @@ use tracing_subscriber::{
 };
 
 use sp1_worker::{
-    artifact::{ArtifactClient, ArtifactType, RedisArtifactClient},
+    artifact::{ArtifactClient, ArtifactType},
     proto::{Artifact, TaskType},
+    redis::RedisArtifactClient,
     V2Client,
 };
 
