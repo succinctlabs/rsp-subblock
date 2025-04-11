@@ -780,7 +780,6 @@ checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 [[package]]
 name = "api2"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#34cb53f441549f6b1552bacb8ff9fa836834713d"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4104,7 +4103,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -7018,6 +7017,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "bincode",
+ "cfg-if",
  "futures",
  "itertools 0.13.0",
  "reth-chainspec",
@@ -8315,7 +8315,6 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fsubblock#34cb53f441549f6b1552bacb8ff9fa836834713d"
 dependencies = [
  "anyhow",
  "async-channel",

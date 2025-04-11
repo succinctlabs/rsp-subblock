@@ -3268,6 +3268,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "bincode",
+ "cfg-if",
  "futures",
  "itertools 0.13.0",
  "reth-chainspec 1.0.6 (git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock)",
