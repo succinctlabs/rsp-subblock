@@ -3,13 +3,12 @@
 //! Directly creates an aggregation task.
 
 use alloy_provider::ReqwestProvider;
-use api2::{conn::ClusterClientV2, worker::CreateProofRequest};
+use api2::{conn::ClusterClientV2, worker::CreateDummyProofRequest};
 use clap::Parser;
-use reth_primitives::{Block, B256};
+use reth_primitives::B256;
 use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use sp1_sdk::{
     include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
     SP1VerifyingKey,
@@ -24,8 +23,9 @@ use tracing_subscriber::{
 };
 
 use sp1_worker::{
-    artifact::{ArtifactClient, ArtifactType, RedisArtifactClient},
+    artifact::{ArtifactClient, ArtifactType},
     proto::{Artifact, TaskType},
+    redis::RedisArtifactClient,
     V2Client,
 };
 
@@ -190,11 +190,9 @@ async fn schedule_task(
     cluster_client
         .client
         .client
-        .create_proof(CreateProofRequest {
+        .create_dummy_proof(CreateDummyProofRequest {
             worker_id: worker_id.clone(),
             proof_id: proof_id.clone(),
-            inputs: vec![],
-            outputs: vec![],
             requester: "yuwens_mac".to_string(),
             expires_at: 0,
         })
