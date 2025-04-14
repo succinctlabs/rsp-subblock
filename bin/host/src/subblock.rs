@@ -1,21 +1,17 @@
 //! Serial subblock execution. Use this one for debugging.
 
 use alloy_provider::ReqwestProvider;
-use api2::{conn::ClusterClientV2, worker::CreateProofRequest};
+use api2::conn::ClusterClientV2;
 use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
-use sp1_core_executor::Program;
 use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
-use sp1_worker::artifact::{ArtifactType, RedisArtifactClient};
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use sp1_worker::artifact::ArtifactType;
+use sp1_worker::redis::RedisArtifactClient;
+use std::path::PathBuf;
 use tracing_subscriber::{
-    field::RecordFields, filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt,
-    util::SubscriberInitExt,
+    filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 mod cli;
@@ -152,6 +148,16 @@ async fn main() -> eyre::Result<()> {
                 execution_report.total_instruction_count()
             );
         }
+
+        // Write the elf and stdin to the dump directory.
+        if let Ok(dump_dir) = std::env::var("DUMP_DIR") {
+            let dump_dir = PathBuf::from(dump_dir);
+            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
+            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
+            std::fs::write(elf_path, &subblock_pk.elf)?;
+            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
+        }
+
         // Generate the subblock proof.
         let proof = schedule_controller(
             elf_artifact.clone(),
@@ -161,7 +167,6 @@ async fn main() -> eyre::Result<()> {
             args.execute,
         )
         .await?;
-
         // Write the output to the public values.
         public_values.push(proof.public_values.clone());
 

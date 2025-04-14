@@ -1,12 +1,17 @@
 mod error;
 pub use error::Error as HostError;
+use reth_trie::AccountProof;
 use std::{
     collections::{BTreeSet, HashMap},
+    future::IntoFuture,
     marker::PhantomData,
+    sync::Arc,
+    time::Duration,
 };
 
 use alloy_provider::{network::AnyNetwork, Provider};
 use alloy_transport::Transport;
+use itertools::Itertools;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{proofs, Block, Bloom, Receipts, B256, U256};
 use revm::db::CacheDB;
@@ -20,12 +25,19 @@ use rsp_client_executor::{
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
 use rsp_rpc_db::RpcDb;
+use tokio::task::JoinSet;
+use tokio::time::sleep;
+
+/// The maximum number of times to retry fetching a proof.
+const MAX_PROOF_RETRIES: u32 = 3;
+/// The initial backoff duration for proof fetching retries.
+const INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 
 /// An executor that fetches data from a [Provider] to execute blocks in the [ClientExecutor].
 #[derive(Debug, Clone)]
 pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> {
     /// The provider which fetches data.
-    pub provider: P,
+    pub provider: Arc<P>,
     /// A phantom type to make the struct generic over the transport.
     pub phantom: PhantomData<T>,
 }
@@ -45,10 +57,50 @@ fn merge_state_requests(
     }
 }
 
-impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P> {
+impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExecutor<T, P> {
     /// Create a new [`HostExecutor`] with a specific [Provider] and [Transport].
     pub fn new(provider: P) -> Self {
-        Self { provider, phantom: PhantomData }
+        Self { provider: Arc::new(provider), phantom: PhantomData }
+    }
+
+    async fn get_proof(
+        provider: Arc<P>,
+        address: Address,
+        keys: Vec<B256>,
+        block_number: u64,
+    ) -> Result<AccountProof, HostError> {
+        let mut attempts = 0;
+        let mut backoff = INITIAL_RETRY_BACKOFF;
+
+        loop {
+            match provider.get_proof(address, keys.clone()).block_id((block_number).into()).await {
+                Ok(proof) => return Ok(eip1186_proof_to_account_proof(proof)),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= MAX_PROOF_RETRIES {
+                        tracing::error!(
+                            "Failed to get proof for address {} at block {} after {} attempts: {:?}",
+                            address,
+                            block_number,
+                            attempts,
+                            e
+                        );
+                        // Consider returning a more specific error if needed
+                        return Err(HostError::Transport(e));
+                    }
+                    tracing::warn!(
+                        "Attempt {} failed to get proof for address {} at block {}. Retrying in {:?}...",
+                        attempts,
+                        address,
+                        block_number,
+                        backoff
+                    );
+                    sleep(backoff).await;
+                    // Exponential backoff
+                    backoff *= 2;
+                }
+            }
+        }
     }
 
     /// Executes the block with the given block number.
@@ -436,39 +488,44 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> HostExecutor<T, P
         let mut before_storage_proofs = Vec::new();
         let mut after_storage_proofs = Vec::new();
 
-        for (address, used_keys) in cumulative_state_requests.iter() {
-            let modified_keys = cumulative_executor_outcomes
-                .state()
-                .state
-                .get(address)
-                .map(|account| {
-                    account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .collect::<Vec<_>>();
+        for chunk in cumulative_state_requests.into_iter().chunks(10).into_iter() {
+            let mut before_handles = JoinSet::new();
+            let mut after_handles = JoinSet::new();
+            for (address, used_keys) in chunk {
+                let modified_keys = cumulative_executor_outcomes
+                    .state()
+                    .state
+                    .get(&address)
+                    .map(|account| {
+                        account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<Vec<_>>();
 
-            let keys = used_keys
-                .iter()
-                .map(|key| B256::from(*key))
-                .chain(modified_keys.clone().into_iter())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .chain(modified_keys.clone().into_iter())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
 
-            let storage_proof = self
-                .provider
-                .get_proof(*address, keys.clone())
-                .block_id((block_number - 1).into())
-                .await?;
-            before_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+                let provider_clone = self.provider.clone();
 
-            let storage_proof = self
-                .provider
-                .get_proof(*address, modified_keys)
-                .block_id((block_number).into())
-                .await?;
-            after_storage_proofs.push(eip1186_proof_to_account_proof(storage_proof));
+                before_handles.spawn(async move {
+                    Self::get_proof(provider_clone, address, keys, block_number - 1).await.unwrap()
+                });
+
+                let provider_clone = self.provider.clone();
+                after_handles.spawn(async move {
+                    Self::get_proof(provider_clone, address, modified_keys, block_number)
+                        .await
+                        .unwrap()
+                });
+            }
+            before_storage_proofs.extend(before_handles.join_all().await);
+            after_storage_proofs.extend(after_handles.join_all().await);
         }
 
         let parent_state = EthereumState::from_transition_proofs(
