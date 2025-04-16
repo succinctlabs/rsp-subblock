@@ -735,8 +735,8 @@ impl MptNode {
             return;
         }
 
-        if !touched_refs.contains(&self.reference())
-            && !matches!(self.data, MptNodeData::Leaf(_, _))
+        if !touched_refs.contains(&self.reference()) &&
+            !matches!(self.data, MptNodeData::Leaf(_, _))
         {
             self.data = MptNodeData::Digest(self.hash());
             return;
@@ -744,13 +744,8 @@ impl MptNode {
 
         match &mut self.data {
             MptNodeData::Branch(children) => {
-                for child in children {
-                    match child {
-                        Some(ref mut node) => {
-                            node.prune_unmarked_nodes(touched_refs);
-                        }
-                        None => {}
-                    }
+                for child in children.iter_mut().flatten() {
+                    child.prune_unmarked_nodes(touched_refs);
                 }
             }
             MptNodeData::Extension(_, child) => {
@@ -759,6 +754,8 @@ impl MptNode {
             // No recursive pruning necessary for leaves, digests, or nulls
             MptNodeData::Leaf(_, _) | MptNodeData::Digest(_) | MptNodeData::Null => {}
         }
+
+        self.invalidate_ref_cache();
     }
 
     /// Inserts a key-value pair into the trie.

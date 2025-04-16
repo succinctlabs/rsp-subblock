@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
 use rkyv::with::{Identity, MapKV};
@@ -48,11 +49,13 @@ impl EthereumState {
 
     /// Mutates state based on diffs provided in [`HashedPostState`].
     pub fn update(&mut self, post_state: &HashedPostState) {
-        for (hashed_address, account) in post_state.accounts.iter() {
+        for (hashed_address, account) in post_state.accounts.iter().sorted_by(|a, b| a.0.cmp(b.0)) {
+            println!("hashed_address: {:?}", hashed_address);
             let hashed_address = hashed_address.as_slice();
 
             match account {
                 Some(account) => {
+                    println!("inserting account: {:?}", account);
                     let state_storage = &post_state.storages.get(hashed_address).unwrap();
                     let storage_root = {
                         let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
@@ -64,12 +67,14 @@ impl EthereumState {
                         for (key, value) in state_storage.storage.iter() {
                             let key = key.as_slice();
                             if value.is_zero() {
+                                println!("deleting storage key: {:?}", key);
                                 storage_trie.delete(key).unwrap();
                             } else {
+                                println!("inserting storage key: {:?}", key);
                                 storage_trie.insert_rlp(key, *value).unwrap();
                             }
                         }
-
+                        println!("storage_root: {:?}", storage_trie.hash());
                         storage_trie.hash()
                     };
 
@@ -82,6 +87,7 @@ impl EthereumState {
                     self.state_trie.insert_rlp(hashed_address, state_account).unwrap();
                 }
                 None => {
+                    println!("deleting account: {:?}", hashed_address);
                     self.state_trie.delete(hashed_address).unwrap();
                 }
             }
@@ -93,15 +99,16 @@ impl EthereumState {
         self.state_trie.hash()
     }
 
-    /// Given a state trie constructed with some storage proofs, prunes it to only include the necessary
-    /// hashes for certain addresses / storage slots touched.
+    /// Given a state trie constructed with some storage proofs, prunes it to only include the
+    /// necessary hashes for certain addresses / storage slots touched.
     ///
     /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
     pub fn prune(&mut self, touched_state: &HashMap<B256, Vec<B256>>) {
         // Iterate over all of the touched state, marking nodes touched along the way.
         let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
 
-        // Now, traverse the entire trie, replacing any nodes that are not touched with their digest.
+        // Now, traverse the entire trie, replacing any nodes that are not touched with their
+        // digest.
         let prev_state_root = self.state_root();
         self.state_trie.prune_unmarked_nodes(&touched_account_refs);
         let new_state_root = self.state_root();

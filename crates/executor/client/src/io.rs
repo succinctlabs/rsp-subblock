@@ -129,6 +129,7 @@ impl SubblockHostOutput {
                 );
                 return Err(ClientError::InvalidSubblockOutput);
             }
+            println!("subblock {} is valid", i);
         }
         Ok(())
     }

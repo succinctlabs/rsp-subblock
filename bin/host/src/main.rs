@@ -10,8 +10,7 @@ use rsp_client_executor::{
 };
 use rsp_host_executor::HostExecutor;
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
-use sp1_worker::artifact::ArtifactType;
-use sp1_worker::redis::RedisArtifactClient;
+use sp1_worker::{artifact::ArtifactType, redis::RedisArtifactClient};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -170,7 +169,6 @@ async fn main() -> eyre::Result<()> {
             eth_proofs_client.proving(args.block_number).await?;
         }
 
-        let start = std::time::Instant::now();
         // let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
         // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
 
@@ -199,9 +197,6 @@ async fn main() -> eyre::Result<()> {
         )
         .await?;
         client.verify(&proof, &vk).unwrap();
-        let elapsed = start.elapsed().as_secs_f32();
-
-        println!("elapsed: {}", elapsed);
 
         // if let Some(eth_proofs_client) = &eth_proofs_client {
         //     eth_proofs_client

@@ -780,7 +780,7 @@ checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
 [[package]]
 name = "api2"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fdata-collection-simulator#9a7288363e70f0bc3782e082fd4d7aa24eca5125"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fdata-collection-simulator#27b0e0a9535088791551e0c52e1c90ddd5ed9957"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8316,7 +8316,7 @@ dependencies = [
 [[package]]
 name = "sp1-worker"
 version = "0.1.0"
-source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fdata-collection-simulator#9a7288363e70f0bc3782e082fd4d7aa24eca5125"
+source = "git+https://github.com/succinctlabs/sp1-prover-service.git?branch=yuwen%2Fdata-collection-simulator#27b0e0a9535088791551e0c52e1c90ddd5ed9957"
 dependencies = [
  "anyhow",
  "async-channel",

@@ -25,8 +25,7 @@ use rsp_client_executor::{
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
 use rsp_rpc_db::RpcDb;
-use tokio::task::JoinSet;
-use tokio::time::sleep;
+use tokio::{task::JoinSet, time::sleep};
 
 /// The maximum number of times to retry fetching a proof.
 const MAX_PROOF_RETRIES: u32 = 3;
@@ -393,7 +392,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
             tracing::info!("num transactions left: {}", subblock_input.body.len());
 
-            // This looks suspiciously normal... it's because I put all the subblock config in the BlockWithSenders
+            // This looks suspiciously normal... it's because I put all the subblock config in the
+            // BlockWithSenders
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
 
             let num_executed_transactions = subblock_output.receipts.len();
@@ -640,8 +640,17 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_parent_states.push(
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
             );
+            println!("BIG STATE UPDATE!");
             big_state.update(&state_diffs[i]);
             let output_root = big_state.state_root();
+
+            #[cfg(debug_assertions)]
+            {
+                println!("DEBUG STATE UPDATE!");
+                subblock_parent_state.update(&state_diffs[i]);
+                let debug_root = subblock_parent_state.state_root();
+                assert_eq!(output_root, debug_root);
+            }
 
             subblock_outputs[i].input_state_root = input_root;
             subblock_outputs[i].output_state_root = output_root;

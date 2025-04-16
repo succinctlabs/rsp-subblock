@@ -12,10 +12,13 @@ import itertools # For the counter
 CACHE_DIR = "subblock-bench-8m"
 CHAIN_ID = "1"
 CARGO_BIN = "subblock-streaming"
+RSP_BIN = "rsp" # Binary name for the oneshot command
 CSV_FILE = "evaluation_blocks.csv"
+ONESHOT_CACHE_DIR = "base"
 NUM_WORKERS = 1 # Number of parallel processes to run (used only in concurrent mode)
 START_ROW = 1 # 1-based index for the *data* row to start processing from (after header)
 EXECUTION_MODE = "concurrent" # Options: "concurrent", "serial"
+ONESHOT_THRESHOLD = 16_000_000 # Gas used threshold to switch command
 # --- End Configuration ---
 
 # --- Globals for Signal Handling & Progress ---
@@ -102,9 +105,9 @@ def signal_handler(sig, frame):
     sys.exit(1) # Force exit immediately after cleanup attempts
 
 
-def run_cargo_for_block(block_number, total_blocks):
-    """Constructs and runs the cargo command, handling specific errors and showing progress."""
-    global running_processes, process_lock, shutdown_requested, CACHE_DIR, CHAIN_ID, progress_counter
+def run_cargo_for_block(block_number, gas_used, total_blocks):
+    """Constructs and runs the cargo command based on gas_used, handling errors and progress."""
+    global running_processes, process_lock, shutdown_requested, CACHE_DIR, CHAIN_ID, CARGO_BIN, RSP_BIN, ONESHOT_THRESHOLD, progress_counter
 
     # Get the current progress count before checking for shutdown
     current_count = next(progress_counter)
@@ -115,15 +118,34 @@ def run_cargo_for_block(block_number, total_blocks):
         return block_number, "skipped", None
 
     # Print progress here
-    print(f"Starting processing for Block Number: {block_number} (Task {current_count}/{total_blocks})")
-    command = [
-        "cargo", "run", "--profile", "release", "--bin", CARGO_BIN, "--",
-        "--block-number", str(block_number),
-        "--chain-id", CHAIN_ID,
-        "--cache-dir", CACHE_DIR,
-        "--execute"
-        "--simulate",
-    ]
+    print(f"Starting processing for Block Number: {block_number} (Gas: {gas_used}) (Task {current_count}/{total_blocks})")
+
+    # --- Command Selection based on Gas Threshold ---
+    if gas_used < ONESHOT_THRESHOLD:
+        print(f"  Gas used ({gas_used}) < threshold ({ONESHOT_THRESHOLD}). Using '{RSP_BIN}' command.")
+        command = [
+            "cargo", "run", "--profile", "release", "--bin", RSP_BIN, "--",
+            "--block-number", str(block_number),
+            "--chain-id", CHAIN_ID,
+            "--cache-dir", ONESHOT_CACHE_DIR, # Using "base" cache dir as requested for rsp
+            "--prove"
+        ]
+        # Define the cache directory specific to this command for potential error handling
+        current_cache_dir = ONESHOT_CACHE_DIR
+    else:
+        print(f"  Gas used ({gas_used}) >= threshold ({ONESHOT_THRESHOLD}). Using '{CARGO_BIN}' command.")
+        command = [
+            "cargo", "run", "--profile", "release", "--bin", CARGO_BIN, "--",
+            "--block-number", str(block_number),
+            "--chain-id", CHAIN_ID,
+            "--cache-dir", CACHE_DIR, # Using the globally configured cache dir
+            "--execute",
+            "--simulate",
+        ]
+        # Define the cache directory specific to this command for potential error handling
+        current_cache_dir = CACHE_DIR
+    # --- End Command Selection ---
+
 
     proc = None
     try:
@@ -165,11 +187,14 @@ def run_cargo_for_block(block_number, total_blocks):
             print(f"Stderr for {block_number}:\n{stderr}", file=sys.stderr)
 
             # Check for the specific error message in stderr
+            # NOTE: This error handling is specific to the original 'subblock-streaming' cache structure.
+            # If 'rsp' with '--cache-dir base' can cause the same error and needs similar cleanup,
+            # this logic might need adjustment based on which command was run.
             error_string_to_check = "Error: io error: failed to fill whole buffer"
-            if error_string_to_check in stderr:
-                print(f"Detected '{error_string_to_check}' for block {block_number}.")
-                # Construct the file path
-                file_to_delete = os.path.join(CACHE_DIR, "input", CHAIN_ID, f"{block_number}.bin")
+            if error_string_to_check in stderr and command[6] == CARGO_BIN: # Only attempt delete if it was the original command
+                print(f"Detected '{error_string_to_check}' for block {block_number} (ran with {CARGO_BIN}).")
+                # Construct the file path using the cache dir relevant to the command that failed
+                file_to_delete = os.path.join(current_cache_dir, "input", CHAIN_ID, f"{block_number}.bin")
                 print(f"Attempting to delete potentially corrupted file: {file_to_delete}")
                 try:
                     os.remove(file_to_delete)
@@ -180,6 +205,8 @@ def run_cargo_for_block(block_number, total_blocks):
                     print(f"Error deleting file {file_to_delete}: {e}", file=sys.stderr)
                 except Exception as e:
                     print(f"Unexpected error during file deletion for {file_to_delete}: {e}", file=sys.stderr)
+            elif error_string_to_check in stderr and command[6] == RSP_BIN:
+                 print(f"Detected '{error_string_to_check}' for block {block_number} (ran with {RSP_BIN}). File deletion logic not implemented for 'base' cache.")
             # --- End Failure Handling ---
 
             return block_number, "failed", return_code
@@ -243,10 +270,10 @@ def main():
     print(f"CSV file '{CSV_FILE}' found and is readable.")
 
     print("-" * 37)
-    print(f"Reading block numbers from CSV file: {CSV_FILE}")
+    print(f"Reading block numbers and gas used from CSV file: {CSV_FILE}")
 
-    # --- Read and Validate Block Numbers ---
-    block_numbers_to_process = []
+    # --- Read and Validate Block Numbers and Gas Used ---
+    blocks_to_process = [] # List to store tuples of (block_number_str, gas_used_int)
     skipped_rows_count = 0
     total_rows_in_file = 0 # Count total data rows for context
     try:
@@ -254,6 +281,9 @@ def main():
             reader = csv.reader(infile)
             try:
                 header = next(reader) # Read header row (Row 1 overall)
+                if len(header) < 2:
+                     print(f"Error: CSV header requires at least 2 columns ('block_number', 'gas_used'), found: {header}", file=sys.stderr)
+                     sys.exit(1)
                 print(f"Skipped header: {header}")
             except StopIteration:
                 print("Error: CSV file is empty.", file=sys.stderr)
@@ -271,12 +301,30 @@ def main():
                     skipped_rows_count += 1
                     continue
 
+                # Validate row structure
+                if len(row) < 2:
+                    print(f"Warning: Skipping data row {i}. Expected at least 2 columns, found {len(row)}: {row}")
+                    continue
+
                 # Validate and add block number
                 block_number_str = row[0].strip()
                 if not block_number_str.isdigit():
-                    print(f"Warning: Skipping data row {i}. Value '{block_number_str}' is not a valid number.")
+                    print(f"Warning: Skipping data row {i}. Block number '{block_number_str}' is not a valid number.")
                     continue
-                block_numbers_to_process.append(block_number_str)
+
+                # Validate and add gas used
+                gas_used_str = row[1].strip()
+                if not gas_used_str.isdigit():
+                     print(f"Warning: Skipping data row {i}. Gas used '{gas_used_str}' is not a valid number.")
+                     continue
+
+                try:
+                    gas_used_int = int(gas_used_str)
+                except ValueError:
+                     print(f"Warning: Skipping data row {i}. Could not convert gas used '{gas_used_str}' to integer.")
+                     continue
+
+                blocks_to_process.append((block_number_str, gas_used_int))
 
     except FileNotFoundError:
         print(f"Error: Failed to open CSV file '{CSV_FILE}'.", file=sys.stderr)
@@ -288,15 +336,16 @@ def main():
     if skipped_rows_count > 0:
         print(f"Skipped {skipped_rows_count} data rows before row {START_ROW}.")
 
-    if not block_numbers_to_process:
-        print(f"No valid block numbers found in CSV file at or after data row {START_ROW}. Exiting.")
+    if not blocks_to_process:
+        print(f"No valid block numbers and gas used found in CSV file at or after data row {START_ROW}. Exiting.")
         sys.exit(0)
 
     # --- Get Total Count for Progress ---
-    total_blocks_to_process = len(block_numbers_to_process) # This is now the count of blocks *actually* being processed
-    print(f"Found {total_blocks_to_process} valid block numbers to process (out of {total_rows_in_file} total data rows).")
+    total_blocks_to_process = len(blocks_to_process) # This is now the count of blocks *actually* being processed
+    print(f"Found {total_blocks_to_process} valid blocks to process (out of {total_rows_in_file} total data rows).")
     print("-" * 37)
-    print(f"Starting {EXECUTION_MODE.lower()} processing using cache directory: {CACHE_DIR}")
+    print(f"Starting {EXECUTION_MODE.lower()} processing using cache directory: {CACHE_DIR} (or 'base' for low gas blocks)")
+    print(f"Gas threshold for using '{RSP_BIN}': {ONESHOT_THRESHOLD}")
     print("-" * 37)
 
     # --- Processing ---
@@ -313,12 +362,12 @@ def main():
 
                 # Submit tasks only if shutdown hasn't been requested already
                 if not shutdown_requested.is_set():
-                    for bn in block_numbers_to_process:
+                    for bn, gu in blocks_to_process: # Unpack block number and gas used
                         if shutdown_requested.is_set(): # Check before submitting each task
                             results["skipped"] += 1
                             continue
-                        # Pass total_blocks_to_process to the worker function
-                        future = executor.submit(run_cargo_for_block, bn, total_blocks_to_process)
+                        # Pass total_blocks_to_process and gas_used to the worker function
+                        future = executor.submit(run_cargo_for_block, bn, gu, total_blocks_to_process)
                         futures.append(future)
 
                 print(f"Submitted {len(futures)} tasks to the executor.")
@@ -356,15 +405,15 @@ def main():
             print("Executing tasks sequentially...")
             executor_instance = None # Ensure executor is None in serial mode
 
-            for bn in block_numbers_to_process:
+            for bn, gu in blocks_to_process: # Unpack block number and gas used
                 if shutdown_requested.is_set():
                     print(f"Skipping remaining blocks due to shutdown request.")
                     results["skipped"] += (total_blocks_to_process - sum(results.values())) # Count remaining as skipped
                     break # Exit the loop
 
-                # Call the function directly
+                # Call the function directly, passing gas_used
                 try:
-                    _block, status, _error_info = run_cargo_for_block(bn, total_blocks_to_process)
+                    _block, status, _error_info = run_cargo_for_block(bn, gu, total_blocks_to_process)
                     if status in results:
                         results[status] += 1
                     else:
@@ -399,7 +448,7 @@ def main():
 
     # --- Final Report ---
     print("-" * 37)
-    total_attempted = len(block_numbers_to_process)
+    total_attempted = len(blocks_to_process)
     # In serial mode, futures list is empty, len(futures) is 0.
     # In concurrent mode, len(futures) is the number submitted before potential interruption.
     tasks_submitted_or_run = len(futures) if EXECUTION_MODE.lower() == "concurrent" else sum(results.values())
@@ -425,6 +474,7 @@ def main():
 
     print("Processing finished or interrupted.")
     print(f"Mode: {EXECUTION_MODE.lower()}")
+    print(f"Gas Threshold ('{RSP_BIN}'): {ONESHOT_THRESHOLD}")
     print(f"Summary:")
     print(f"  Total data rows in CSV: {total_rows_in_file}")
     print(f"  Data rows skipped at start: {skipped_rows_count}")
