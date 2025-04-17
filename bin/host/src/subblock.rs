@@ -6,9 +6,8 @@ use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
-use sp1_worker::artifact::ArtifactType;
-use sp1_worker::redis::RedisArtifactClient;
+use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Proof, SP1Stdin};
+use sp1_worker::{artifact::ArtifactType, redis::RedisArtifactClient};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -105,7 +104,7 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::from_env();
+    let client = ProverClient::builder().cpu().build();
 
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
     let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
@@ -119,7 +118,7 @@ async fn main() -> eyre::Result<()> {
     );
 
     // Setup the proving key and verification key.
-    let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
 
     let elf_artifact = upload_artifact(
         &redis_artifact_client,
@@ -154,7 +153,7 @@ async fn main() -> eyre::Result<()> {
             let dump_dir = PathBuf::from(dump_dir);
             let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
             let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
-            std::fs::write(elf_path, &subblock_pk.elf)?;
+            std::fs::write(elf_path, subblock_pk.elf.as_ref())?;
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
 
@@ -175,7 +174,7 @@ async fn main() -> eyre::Result<()> {
     }
     println!("subblock proofs generated");
 
-    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
+    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
     let agg_elf_artifact =
         upload_artifact(&redis_artifact_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;

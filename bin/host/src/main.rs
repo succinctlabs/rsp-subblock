@@ -9,9 +9,8 @@ use rsp_client_executor::{
     CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
 };
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
-use sp1_worker::artifact::ArtifactType;
-use sp1_worker::redis::RedisArtifactClient;
+use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
+use sp1_worker::{artifact::ArtifactType, redis::RedisArtifactClient};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -132,17 +131,20 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::from_env();
+    let client = ProverClient::builder().cpu().build();
 
     // Setup the proving key and verification key.
-    let (pk, vk) = client.setup(match variant {
-        ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-        _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
-    });
+    let (pk, vk) = client
+        .setup(match variant {
+            ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
+            _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
+        })
+        .await;
 
     // Execute the block inside the zkVM.
     let mut stdin = SP1Stdin::new();
     let buffer = bincode::serialize(&client_input).unwrap();
+    println!("buffer len: {}", buffer.len());
     stdin.write_vec(buffer);
 
     // Only execute the program.

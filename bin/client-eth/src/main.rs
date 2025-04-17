@@ -5,6 +5,7 @@ use rsp_client_executor::{io::ClientExecutorInput, ClientExecutor, EthereumVaria
 
 pub fn main() {
     // Read the input.
+    println!("reading input");
     let input = sp1_zkvm::io::read_vec();
     let input = bincode::deserialize::<ClientExecutorInput>(&input).unwrap();
 

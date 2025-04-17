@@ -10,8 +10,8 @@ use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInpu
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
-    include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
-    SP1VerifyingKey,
+    include_elf, CpuSP1ProvingKey, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues,
+    SP1Stdin, SP1VerifyingKey,
 };
 use std::{
     io::Write,
@@ -131,12 +131,12 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::from_env();
+    let client = ProverClient::builder().cpu().build();
 
     // Setup the proving key and verification key.
-    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
 
-    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
+    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
     let proof = schedule_task(
         subblock_pk,
@@ -158,9 +158,9 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn schedule_task(
-    subblock_pk: SP1ProvingKey,
+    subblock_pk: CpuSP1ProvingKey,
     block_number: u64,
-    agg_pk: SP1ProvingKey,
+    agg_pk: CpuSP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
     simulate: bool,
@@ -201,7 +201,8 @@ async fn schedule_task(
     let mut subblock_input_artifacts: Vec<Artifact> =
         Vec::with_capacity(inputs.subblock_inputs.len());
 
-    let client = ProverClient::from_env();
+    // Generate the proof.
+    let client = ProverClient::builder().cpu().build();
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
     let mut total_cycles = 0;
@@ -220,7 +221,7 @@ async fn schedule_task(
             let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
             let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
             let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
-            std::fs::write(elf_path, &subblock_elf)?;
+            std::fs::write(elf_path, subblock_elf.as_ref())?;
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
         let artifact_handle =
