@@ -10,7 +10,7 @@ use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInpu
 use rsp_host_executor::HostExecutor;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{
-    include_elf, CpuSP1ProvingKey, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues,
+    include_elf, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
     SP1Stdin, SP1VerifyingKey,
 };
 use std::{
@@ -158,9 +158,9 @@ async fn main() -> eyre::Result<()> {
 }
 
 async fn schedule_task(
-    subblock_pk: CpuSP1ProvingKey,
+    subblock_pk: SP1ProvingKey,
     block_number: u64,
-    agg_pk: CpuSP1ProvingKey,
+    agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
     simulate: bool,

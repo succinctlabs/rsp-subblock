@@ -14,10 +14,11 @@ resolver = "2"
 [profile.release-with-debug]
 inherits = "release"
 debug-assertions = true
-lto = true
+debug = true
+# lto = true
 
-[profile.release]
-lto = true
+# [profile.release]
+# lto = true
 
 [workspace.package]
 edition = "2021"

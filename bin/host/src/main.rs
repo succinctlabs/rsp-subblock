@@ -22,6 +22,9 @@ mod execute;
 
 mod eth_proofs;
 
+const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
+const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
+
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
 struct HostArgs {
@@ -147,23 +150,25 @@ async fn main() -> eyre::Result<()> {
     println!("buffer len: {}", buffer.len());
     stdin.write_vec(buffer);
 
+    // let (pk, vk) = client.setup(FIB_ELF).await;
+    // let stdin: SP1Stdin = bincode::deserialize(FIB_STDIN).unwrap();
     // Only execute the program.
-    let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
+    // let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
-    // Read the block hash.
-    let block_hash = public_values.read::<B256>();
-    println!("success: block_hash={block_hash}");
+    // // Read the block hash.
+    // let block_hash = public_values.read::<B256>();
+    // println!("success: block_hash={block_hash}");
 
-    if eth_proofs_client.is_none() {
-        // Process the execute report, print it out, and save data to a CSV specified by
-        // report_path.
-        process_execution_report(
-            variant,
-            client_input,
-            &execution_report,
-            args.report_path.clone(),
-        )?;
-    }
+    // if eth_proofs_client.is_none() {
+    //     // Process the execute report, print it out, and save data to a CSV specified by
+    //     // report_path.
+    //     process_execution_report(
+    //         variant,
+    //         client_input,
+    //         &execution_report,
+    //         args.report_path.clone(),
+    //     )?;
+    // }
 
     if args.prove {
         println!("Starting proof generation.");
@@ -190,6 +195,15 @@ async fn main() -> eyre::Result<()> {
         let elf_artifact =
             upload_artifact(&redis_artifact_client, "subblock_elf", &pk.elf, ArtifactType::Program)
                 .await?;
+
+        #[cfg(debug_assertions)]
+        {
+            let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
+            let elf_path = dump_dir.join("elf_debug.bin");
+            let stdin_path = dump_dir.join("stdin_debug.bin");
+            std::fs::write(elf_path, pk.elf.as_ref())?;
+            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
+        }
 
         // Generate the subblock proof.
         let proof = schedule_controller(

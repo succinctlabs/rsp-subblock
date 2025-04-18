@@ -1,19 +1,20 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy_provider::{network::AnyNetwork, Provider as _, ReqwestProvider};
-use api2::conn::ClusterConnection;
-use api2::worker::CreateDummyProofRequest;
+use api2::{conn::ClusterConnection, worker::CreateDummyProofRequest};
 use clap::Parser;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sp1_sdk::{SP1ProofWithPublicValues, SP1Stdin};
-use sp1_worker::V2Client;
 use sp1_worker::{
     artifact::{ArtifactClient, ArtifactType},
     proto::{Artifact, TaskType},
-    ProofOptions,
+    ProofOptions, V2Client,
 };
 use url::Url;
+
+const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
+const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
 
 /// The arguments for configuring the chain data provider.
 #[derive(Debug, Clone, Parser)]
