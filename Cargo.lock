@@ -8282,7 +8282,7 @@ dependencies = [
 [[package]]
 name = "sp1-build"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "anyhow",
  "cargo_metadata 0.18.1",
@@ -8294,7 +8294,7 @@ dependencies = [
 [[package]]
 name = "sp1-core-executor"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -8332,7 +8332,7 @@ dependencies = [
 [[package]]
 name = "sp1-core-machine"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "bincode",
  "cbindgen",
@@ -8392,7 +8392,7 @@ dependencies = [
 [[package]]
 name = "sp1-curves"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "cfg-if",
  "dashu",
@@ -8413,7 +8413,7 @@ dependencies = [
 [[package]]
 name = "sp1-derive"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -8422,7 +8422,7 @@ dependencies = [
 [[package]]
 name = "sp1-lib"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "bincode",
  "serde",
@@ -8443,7 +8443,7 @@ dependencies = [
 [[package]]
 name = "sp1-primitives"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "bincode",
  "hex",
@@ -8479,7 +8479,7 @@ dependencies = [
 [[package]]
 name = "sp1-prover"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "anyhow",
  "bincode",
@@ -8529,7 +8529,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-circuit"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "derive-where",
  "hashbrown 0.14.5",
@@ -8579,7 +8579,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-compiler"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "backtrace",
  "cfg-if",
@@ -8603,7 +8603,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-derive"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -8612,7 +8612,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-executor"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "backtrace",
  "cbindgen",
@@ -8656,7 +8656,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-gnark-ffi"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "anyhow",
  "bincode",
@@ -8681,7 +8681,7 @@ dependencies = [
 [[package]]
 name = "sp1-recursion-machine"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "cbindgen",
  "cc",
@@ -8719,7 +8719,7 @@ dependencies = [
 [[package]]
 name = "sp1-sdk"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "alloy-primitives",
  "alloy-signer 0.8.3",
@@ -8765,7 +8765,7 @@ dependencies = [
 [[package]]
 name = "sp1-stark"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "arrayref",
  "derive-where",
@@ -8886,7 +8886,7 @@ dependencies = [
 [[package]]
 name = "sp1-zkvm"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#3102da5b3ea21253c30b17ebff1bfa154b013ab6"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.15",

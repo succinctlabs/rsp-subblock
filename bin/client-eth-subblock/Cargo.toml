@@ -11,8 +11,6 @@ bincode = "1.3.3"
 rsp-client-executor = { path = "../../crates/executor/client" }
 rsp-mpt = { path = "../../crates/mpt" }
 
-# reth
-reth-trie = { path = "../../../reth/crates/trie/trie", default-features = false, features = ["serde"] }
 
 # sp1
 sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/cluster-v6" }
