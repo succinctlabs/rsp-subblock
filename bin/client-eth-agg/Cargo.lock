@@ -3484,7 +3484,7 @@ dependencies = [
 [[package]]
 name = "sp1-lib"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#583e5abe763201e1ec9b9208b881d4cc4a0a8af1"
 dependencies = [
  "bincode",
  "serde",
@@ -3506,7 +3506,7 @@ dependencies = [
 [[package]]
 name = "sp1-primitives"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#583e5abe763201e1ec9b9208b881d4cc4a0a8af1"
 dependencies = [
  "bincode",
  "hex",
@@ -3542,7 +3542,7 @@ dependencies = [
 [[package]]
 name = "sp1-zkvm"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#d6903198e7021bf7ab8a1652fa2857079dac29a0"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=yuwen%2Fcluster-v6#583e5abe763201e1ec9b9208b881d4cc4a0a8af1"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.15",
