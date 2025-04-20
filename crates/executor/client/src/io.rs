@@ -54,31 +54,6 @@ pub struct SubblockInput {
     pub is_last_subblock: bool,
 }
 
-// impl SubblockInput {
-//     pub fn deserialize_state(&self) -> EthereumState {
-//         println!("cycle-tracker-start: align");
-//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-//         aligned_vec.extend_from_slice(&self.parent_state_bytes);
-//         println!("cycle-tracker-end: align");
-//         println!("cycle-tracker-start: deserialize parent state");
-//         let result = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap();
-//         println!("cycle-tracker-end: deserialize parent state");
-//         result
-//     }
-
-//     pub fn deserialize_state_diff(&self) -> HashedPostState {
-//         println!("cycle-tracker-start: align");
-//         let mut aligned_vec = AlignedVec::<16>::with_capacity(self.state_diff_bytes.len());
-//         aligned_vec.extend_from_slice(&self.state_diff_bytes);
-//         println!("cycle-tracker-end: align");
-//         println!("cycle-tracker-start: deserialize state diff");
-//         let result =
-//             rkyv::from_bytes::<HashedPostState, rkyv::rancor::Error>(&aligned_vec).unwrap();
-//         println!("cycle-tracker-end: deserialize state diff");
-//         result
-//     }
-// }
-
 /// Everything needed to run the subblock task e2e.
 ///
 /// Necessary data for subblock stdin and agg stdin.
@@ -92,7 +67,7 @@ pub struct SubblockHostOutput {
 }
 
 impl SubblockHostOutput {
-    pub fn validate(&self, state_diffs: Option<Vec<HashedPostState>>) -> Result<(), ClientError> {
+    pub fn validate(&self) -> Result<(), ClientError> {
         let current_block = self.agg_input.current_block.clone();
         let executor_difficulty = current_block.header.difficulty;
         for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
@@ -123,6 +98,7 @@ impl SubblockHostOutput {
             let debug_execution_output =
                 EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
             let receipts = debug_execution_output.receipts.clone();
+            // let requests = debug_execution_output.requests.clone();
             let outcome = ExecutionOutcome::new(
                 debug_execution_output.state,
                 Receipts::from(debug_execution_output.receipts),
@@ -141,6 +117,7 @@ impl SubblockHostOutput {
                 logs_bloom,
                 output_state_root: subblock_parent_state.state_root(),
                 input_state_root: old_state_root,
+                // requests
             };
 
             if debug_subblock_output != subblock_output {
@@ -153,18 +130,6 @@ impl SubblockHostOutput {
                     debug_subblock_output.input_state_root, subblock_output.input_state_root
                 );
                 return Err(ClientError::InvalidSubblockOutput);
-            }
-            let Some(ref state_diffs) = state_diffs else {
-                continue;
-            };
-            let state_diff = state_diffs[i].clone();
-            if outcome.hash_state_slow() != state_diff {
-                eprintln!(
-                    "reconstructed hashedpoststate doesn't match target post state \n{} \n{}",
-                    outcome.hash_state_slow().into_sorted().display(),
-                    state_diff.into_sorted().display()
-                );
-                return Err(ClientError::InvalidStateDiff);
             }
         }
         Ok(())
@@ -274,7 +239,8 @@ pub struct SubblockOutput {
     pub receipts: Vec<Receipt>,
     /// The state root before executing this subblock.
     pub input_state_root: B256,
-    // pub requests: Vec<Request>, // This is only needed for pectra.
+    // // This is only needed for pectra.
+    // pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {

@@ -1,10 +1,16 @@
-use sp1_build::build_program;
+use sp1_build::{build_program_with_args, BuildArgs};
 
 fn main() {
-    // build_program("../client-eth");
-    // build_program("../client-op");
-    // build_program("../client-linea");
-    // build_program("../client-sepolia");
-    build_program("../client-eth-agg");
-    build_program("../client-eth-subblock");
+    build_program_with_args(
+        "../client-eth",
+        BuildArgs { ignore_rust_version: true, ..Default::default() },
+    );
+    build_program_with_args(
+        "../client-eth-agg",
+        BuildArgs { ignore_rust_version: true, ..Default::default() },
+    );
+    build_program_with_args(
+        "../client-eth-subblock",
+        BuildArgs { ignore_rust_version: true, ..Default::default() },
+    );
 }

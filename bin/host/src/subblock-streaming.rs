@@ -3,6 +3,7 @@
 //! Directly creates an aggregation task.
 
 use alloy_provider::ReqwestProvider;
+use api2::{conn::ClusterClientV2, worker::CreateDummyProofRequest};
 use clap::Parser;
 use reth_primitives::B256;
 use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
@@ -12,16 +13,20 @@ use sp1_sdk::{
     include_elf, HashableKey, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey, SP1Stdin,
     SP1VerifyingKey,
 };
-use std::io::Write;
-use std::path::PathBuf;
+use std::{
+    io::Write,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 use sp1_worker::{
-    artifact::ArtifactType,
-    client::ClusterClient,
+    artifact::{ArtifactClient, ArtifactType},
     proto::{Artifact, TaskType},
+    redis::RedisArtifactClient,
+    V2Client,
 };
 
 mod execute;
@@ -42,6 +47,9 @@ struct HostArgs {
     /// Whether to pre-execute the block.
     #[clap(long)]
     execute: bool,
+    /// Whether we are running in a simulator or not.
+    #[clap(long)]
+    simulate: bool,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
@@ -69,9 +77,9 @@ async fn main() -> eyre::Result<()> {
     // Intialize the environment variables.
     dotenv::dotenv().ok();
 
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
+    // if std::env::var("RUST_LOG").is_err() {
+    //     std::env::set_var("RUST_LOG", "info");
+    // }
 
     // Initialize the logger.
     tracing_subscriber::registry().with(fmt::layer()).with(EnvFilter::from_default_env()).init();
@@ -130,29 +138,74 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    let mut proof = schedule_task(subblock_pk, agg_pk, client_input, args.execute).await?;
-    let block_hash = proof.public_values.read::<B256>();
+    let proof = schedule_task(
+        subblock_pk,
+        args.block_number,
+        agg_pk,
+        client_input,
+        args.execute,
+        args.simulate,
+    )
+    .await?;
 
-    println!("block hash: {}", block_hash);
+    if let Some(mut proof) = proof {
+        let block_hash = proof.public_values.read::<B256>();
+
+        println!("block hash: {}", block_hash);
+    }
 
     Ok(())
 }
 
 async fn schedule_task(
     subblock_pk: SP1ProvingKey,
+    block_number: u64,
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-) -> eyre::Result<SP1ProofWithPublicValues> {
+    simulate: bool,
+) -> eyre::Result<Option<SP1ProofWithPublicValues>> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
-    let cluster_client = ClusterClient::new();
+    let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
+    let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
+    let artifact_client = RedisArtifactClient::new(
+        std::env::var("REDIS_NODES")
+            .expect("REDIS_NODES is not set")
+            .split(',')
+            .map(|s| s.to_string())
+            .collect(),
+        std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
+    );
+
+    let now: std::time::Duration =
+        SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+
+    let proof_id = format!("rsp_{}", now.as_secs());
+
+    let worker_id = format!("worker_{}", now.as_secs());
+
+    println!("proof_id: {}", proof_id);
+
+    cluster_client
+        .client
+        .client
+        .create_dummy_proof(CreateDummyProofRequest {
+            worker_id: worker_id.clone(),
+            proof_id: proof_id.clone(),
+            requester: "yuwens_mac".to_string(),
+            expires_at: 0,
+        })
+        .await?;
+
     let mut subblock_input_artifacts: Vec<Artifact> =
         Vec::with_capacity(inputs.subblock_inputs.len());
 
     let client = ProverClient::from_env();
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
+    let mut total_cycles = 0;
+    let mut max_cycles = 0;
 
     for i in 0..inputs.subblock_inputs.len() {
         let input = &inputs.subblock_inputs[i];
@@ -161,19 +214,27 @@ async fn schedule_task(
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
+        #[cfg(debug_assertions)]
+        {
+            // Save the elf/stdin pair to the dump directory.
+            let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
+            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
+            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
+            std::fs::write(elf_path, &subblock_elf)?;
+            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
+        }
         let artifact_handle =
-            upload_artifact(&cluster_client, "subblock_input", &stdin, ArtifactType::Stdin);
+            upload_artifact(&artifact_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
-            let mut debug_log_file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(DEBUG_LOG_FILE.clone())
-                .unwrap();
-            debug_log_file
-                .write_all(format!("subblock, {}\n", report.total_instruction_count()).as_bytes())
-                .unwrap();
+            let subblock_instruction_count = report.total_instruction_count();
+            total_cycles += subblock_instruction_count;
+            max_cycles = if max_cycles < subblock_instruction_count {
+                subblock_instruction_count
+            } else {
+                max_cycles
+            };
         }
         let artifact = artifact_handle.await?;
         subblock_input_artifacts.push(artifact);
@@ -183,7 +244,7 @@ async fn schedule_task(
     let subblock_input_index =
         subblock_input_artifacts.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
     let subblock_input_index_artifact: Artifact = upload_artifact(
-        &cluster_client,
+        &artifact_client,
         "subblock_input_index",
         subblock_input_index,
         ArtifactType::UnspecifiedArtifactType,
@@ -192,11 +253,11 @@ async fn schedule_task(
 
     // Create artifacts for the subblock stuff.
     let subblock_elf_artifact: Artifact =
-        upload_artifact(&cluster_client, "subblock_elf", subblock_elf, ArtifactType::Program)
+        upload_artifact(&artifact_client, "subblock_elf", subblock_elf, ArtifactType::Program)
             .await?;
 
     let subblock_vk_artifact: Artifact = upload_artifact(
-        &cluster_client,
+        &artifact_client,
         "subblock_vk",
         subblock_vk,
         ArtifactType::UnspecifiedArtifactType,
@@ -205,10 +266,10 @@ async fn schedule_task(
 
     // Create artifacts for the aggregation stuff.
     let agg_elf_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
+        upload_artifact(&artifact_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
 
     let agg_stdin_artifact: Artifact =
-        upload_artifact(&cluster_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
+        upload_artifact(&artifact_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
             .await?;
 
     if execute {
@@ -217,23 +278,16 @@ async fn schedule_task(
             .deferred_proof_verification(false)
             .run()
             .unwrap();
-        let mut debug_log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(DEBUG_LOG_FILE.clone())
-            .unwrap();
-        debug_log_file
-            .write_all(format!("aggregation, {}\n", report.total_instruction_count()).as_bytes())
-            .unwrap();
+        let agg_instruction_count = report.total_instruction_count();
+        total_cycles += agg_instruction_count;
+        max_cycles =
+            if max_cycles < agg_instruction_count { agg_instruction_count } else { max_cycles };
     }
 
     // Create an empty artifact for the output
-    let output_artifact: Artifact = cluster_client
+    let output_artifact: Artifact = artifact_client
         .create_artifact_blocking("agg_output", 0)
         .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
-
-    // TODO: make a random proof id.
-    let proof_id = "yuwen".to_string();
 
     let input_ids = vec![
         subblock_elf_artifact.id,
@@ -244,11 +298,12 @@ async fn schedule_task(
     ];
 
     let task_id = cluster_client
+        .client
         .create_task(
-            TaskType::Sp1AggregationTask,
+            TaskType::Sp1SubblockAggregator,
             &input_ids,
             &[output_artifact.id.clone()],
-            proof_id,
+            proof_id.clone(),
             None,
             None,
         )
@@ -258,22 +313,40 @@ async fn schedule_task(
     println!("Task created: {}", task_id);
 
     cluster_client
-        .wait_tasks(&[task_id.clone()])
+        .client
+        .wait_tasks(proof_id.clone(), &[task_id.clone()])
         .await
         .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
 
-    let result: SP1ProofWithPublicValues = output_artifact
-        .download_proof(&cluster_client.http)
-        .await
-        .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+    if simulate {
+        let result: String = artifact_client
+            .download_with_type(&output_artifact, ArtifactType::Proof)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
 
-    // println!("run again, this time setup is cached.");
-    // cluster_client
-    //     .update_task_status(&task_id, sp1_worker::proto::TaskStatus::Pending)
-    //     .await
-    //     .map_err(|e| eyre::eyre!("Failed to update task status: {}", e))?;
-
-    Ok(result)
+        let mut debug_log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(DEBUG_LOG_FILE.clone())
+            .unwrap();
+        debug_log_file
+            .write_all(
+                format!(
+                    "{}, {}, {}, {}, {}\n",
+                    block_number, proof_id, result, total_cycles, max_cycles
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        Ok(None)
+    } else {
+        let result: SP1ProofWithPublicValues = artifact_client
+            .download_with_type(&output_artifact, ArtifactType::Proof)
+            .await
+            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
+        client.verify(&result, &agg_pk.vk)?;
+        Ok(Some(result))
+    }
 }
 
 /// Constructs the aggregation stdin, sans the subblock proofs.

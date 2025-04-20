@@ -22,7 +22,7 @@ reth-primitives = { path = "../../../reth/crates/primitives", default-features =
 reth-trie = { path = "../../../reth/crates/trie/trie", default-features = false, features = ["serde"] }
 
 # sp1
-sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/debug" }
+sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/initial-deferred-digest" }
 
 # rkyv
 rkyv = "0.8.10"
@@ -33,10 +33,11 @@ tracing = { version = "0.1", features = ["max_level_off", "release_max_level_off
 
 [patch.crates-io]
 # Precompile patches
-sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha2-0.10.8-sp1-4.0.0", package = "sha2" }
-ecdsa-core = { git = "https://github.com/sp1-patches/signatures", tag = "patch-0.16.9-sp1-4.0.0", package = "ecdsa" }
+sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", tag = "patch-sha2-0.10.8-sp1-4.0.0" }
+k256 = { git = "https://github.com/sp1-patches/elliptic-curves", tag = "patch-k256-13.4-sp1-4.1.0" }
 bn = { git = "https://github.com/sp1-patches/bn", tag = "patch-0.6.0-sp1-4.0.0", package = "substrate-bn" }
 sha3 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", tag = "patch-sha3-0.10.8-sp1-4.0.0" }
+bls12_381 = { git = "https://github.com/sp1-patches/bls12_381", tag = "patch-0.8.0-sp1-4.0.0-v2" }
 
-alloy-primitives = { path = "../../../alloy-core/crates/primitives" }
-ruint = { path = "../../../uint" }
+alloy-primitives = { git = "https://github.com/yuwen01/alloy-core", branch = "yuwen/rkyv20" }
+ruint = { git = "https://github.com/yuwen01/uint", branch = "yuwen/rkyv" }

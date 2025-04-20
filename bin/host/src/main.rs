@@ -1,21 +1,25 @@
 use alloy_provider::ReqwestProvider;
+use api2::conn::ClusterClientV2;
 use clap::Parser;
 use eth_proofs::EthProofsClient;
+use execute::process_execution_report;
+use reth_primitives::B256;
 use rsp_client_executor::{
     io::ClientExecutorInput, ChainVariant, CHAIN_ID_ETH_MAINNET, CHAIN_ID_LINEA_MAINNET,
     CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
 };
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::ProverClient;
+use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use sp1_worker::artifact::ArtifactType;
+use sp1_worker::redis::RedisArtifactClient;
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
+mod cli;
+use cli::{schedule_controller, upload_artifact, ProviderArgs};
 
 mod execute;
-
-mod cli;
-use cli::ProviderArgs;
 
 mod eth_proofs;
 
@@ -131,54 +135,80 @@ async fn main() -> eyre::Result<()> {
     let client = ProverClient::from_env();
 
     // Setup the proving key and verification key.
-    // let (pk, vk) = client.setup(match variant {
-    //     // ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-    //     // ChainVariant::Optimism => include_elf!("rsp-client-op"),
-    //     // ChainVariant::Linea => include_elf!("rsp-client-linea"),
-    //     // ChainVariant::Sepolia => include_elf!("rsp-client-sepolia"),
-    // });
+    let (pk, vk) = client.setup(match variant {
+        ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
+        _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
+    });
 
-    // // Execute the block inside the zkVM.
-    // let mut stdin = SP1Stdin::new();
-    // let buffer = bincode::serialize(&client_input).unwrap();
-    // stdin.write_vec(buffer);
+    // Execute the block inside the zkVM.
+    let mut stdin = SP1Stdin::new();
+    let buffer = bincode::serialize(&client_input).unwrap();
+    stdin.write_vec(buffer);
 
-    // // Only execute the program.
-    // let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
+    // Only execute the program.
+    let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
-    // // Read the block hash.
-    // let block_hash = public_values.read::<B256>();
-    // println!("success: block_hash={block_hash}");
+    // Read the block hash.
+    let block_hash = public_values.read::<B256>();
+    println!("success: block_hash={block_hash}");
 
-    // if eth_proofs_client.is_none() {
-    //     // Process the execute report, print it out, and save data to a CSV specified by
-    //     // report_path.
-    //     process_execution_report(
-    //         variant,
-    //         client_input,
-    //         &execution_report,
-    //         args.report_path.clone(),
-    //     )?;
-    // }
+    if eth_proofs_client.is_none() {
+        // Process the execute report, print it out, and save data to a CSV specified by
+        // report_path.
+        process_execution_report(
+            variant,
+            client_input,
+            &execution_report,
+            args.report_path.clone(),
+        )?;
+    }
 
-    // if args.prove {
-    //     println!("Starting proof generation.");
+    if args.prove {
+        println!("Starting proof generation.");
 
-    //     if let Some(eth_proofs_client) = &eth_proofs_client {
-    //         eth_proofs_client.proving(args.block_number).await?;
-    //     }
+        if let Some(eth_proofs_client) = &eth_proofs_client {
+            eth_proofs_client.proving(args.block_number).await?;
+        }
 
-    //     let start = std::time::Instant::now();
-    //     let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
-    //     let proof_bytes = bincode::serialize(&proof.proof).unwrap();
-    //     let elapsed = start.elapsed().as_secs_f32();
+        let start = std::time::Instant::now();
+        // let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
+        // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
 
-    //     if let Some(eth_proofs_client) = &eth_proofs_client {
-    //         eth_proofs_client
-    //             .proved(&proof_bytes, args.block_number, &execution_report, elapsed, &vk)
-    //             .await?;
-    //     }
-    // }
+        let addr = std::env::var("CLUSTER_V2_RPC").unwrap_or("http://[::1]:50051".to_string());
+        let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
+        let redis_artifact_client = RedisArtifactClient::new(
+            std::env::var("REDIS_NODES")
+                .expect("REDIS_NODES is not set")
+                .split(',')
+                .map(|s| s.to_string())
+                .collect(),
+            std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
+        );
+
+        let elf_artifact =
+            upload_artifact(&redis_artifact_client, "subblock_elf", &pk.elf, ArtifactType::Program)
+                .await?;
+
+        // Generate the subblock proof.
+        let proof = schedule_controller(
+            elf_artifact.clone(),
+            stdin,
+            &mut cluster_client,
+            &redis_artifact_client,
+            false,
+        )
+        .await?;
+        client.verify(&proof, &vk).unwrap();
+        let elapsed = start.elapsed().as_secs_f32();
+
+        println!("elapsed: {}", elapsed);
+
+        // if let Some(eth_proofs_client) = &eth_proofs_client {
+        //     eth_proofs_client
+        //         .proved(&proof_bytes, args.block_number, &execution_report, elapsed, &vk)
+        //         .await?;
+        // }
+    }
 
     Ok(())
 }

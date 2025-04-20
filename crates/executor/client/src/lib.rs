@@ -7,6 +7,7 @@ pub mod error;
 
 use std::{borrow::BorrowMut, fmt::Display, io::Cursor};
 
+use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
 use error::ClientError;
 use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB};
@@ -31,8 +32,6 @@ use revm_primitives::{address, U256};
 use rkyv::util::AlignedVec;
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
-
-pub use utils::hash_transactions;
 
 /// Chain ID for Ethereum Mainnet.
 pub const CHAIN_ID_ETH_MAINNET: u64 = 0x1;
@@ -296,7 +295,11 @@ impl ClientExecutor {
         profile!("aggregate", {
             for public_value in public_values {
                 let public_values_digest = Sha256::digest(&public_value);
-                sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
+                cfg_if! {
+                    if #[cfg(target_os = "zkvm")] {
+                        sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
+                    }
+                }
                 println!("cycle-tracker-start: deserialize subblock transactions");
                 let mut reader = Cursor::new(&public_value);
                 let subblock_transactions: Vec<TransactionSigned> =
