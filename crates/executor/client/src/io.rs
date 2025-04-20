@@ -12,6 +12,8 @@ use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
 use serde::{Deserialize, Serialize};
 
+use rkyv::util::AlignedVec;
+
 use crate::{error::ClientError, EthereumVariant, Variant};
 
 /// The input for the client to execute a block and fully verify the STF (state transition
@@ -467,5 +469,38 @@ pub trait WitnessInput {
         }
 
         Ok(TrieDB::new(state, block_hashes, bytecodes_by_hash))
+    }
+}
+
+/// Read a buffer of bytes aligned to N from the SP1 zkVM input stream.
+///
+/// Note:  Since `u8` is the smallest alignment, any alignment with N % 4 == 0 is a valid alignment.
+///
+/// # Panics
+///  - If N is not a multiple of 4.
+///  - If the size hinted is 0.
+pub fn read_aligned_vec<const N: usize>() -> AlignedVec<N> {
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "zkvm")] {
+            use sp1_zkvm::syscalls::{syscall_hint_len, syscall_hint_read};
+            assert!(N % align_of::<u8>() == 0, "SP1 zkVM alignment must be a multiple of 4");
+
+            // Round up to the nearest multiple of 4 so that the memory allocated is in whole words
+            let len = unsafe { syscall_hint_len() };
+            let capacity = (len + 3) / 4 * 4;
+
+            // Allocate a buffer of the required length that is 4 byte aligned
+            let mut vec = AlignedVec::<N>::with_capacity(capacity);
+
+            // Read the vec into uninitialized memory. The syscall assumes the memory is uninitialized,
+            // which should be true because the allocator does not dealloc, so a new alloc should be fresh.
+            unsafe {
+                syscall_hint_read(vec.as_mut_ptr(), len);
+                vec.set_len(len);
+            }
+            vec
+        } else {
+            unimplemented!()
+        }
     }
 }
