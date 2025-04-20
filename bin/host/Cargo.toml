@@ -27,7 +27,7 @@ reth-primitives.workspace = true
 
 # sp1
 # sp1-sdk = {version = "4.0.0", features = ["profiling"]}
-sp1-sdk = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/initial-deferred-digest" }
+sp1-sdk = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/initial-deferred-digest", features = ["profiling"] }
 sp1-core-executor = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "yuwen/initial-deferred-digest" }
 
 eyre = "0.6.12"
