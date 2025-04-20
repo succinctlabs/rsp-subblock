@@ -61,6 +61,7 @@ impl EthereumState {
                         let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
 
                         if state_storage.wiped {
+                            println!("clearing storage");
                             storage_trie.clear();
                         }
 

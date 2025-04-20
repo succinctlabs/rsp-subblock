@@ -294,9 +294,9 @@ impl ClientExecutor {
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
         profile!("aggregate", {
             for public_value in public_values {
-                let public_values_digest = Sha256::digest(&public_value);
                 cfg_if! {
                     if #[cfg(target_os = "zkvm")] {
+                        let public_values_digest = Sha256::digest(&public_value);
                         sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
                     }
                 }

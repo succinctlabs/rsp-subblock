@@ -3,7 +3,6 @@ pub use error::Error as HostError;
 use reth_trie::AccountProof;
 use std::{
     collections::{BTreeSet, HashMap},
-    future::IntoFuture,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
@@ -642,11 +641,29 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             );
             println!("BIG STATE UPDATE!");
             big_state.update(&state_diffs[i]);
+            let big_state_bytes =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&big_state).unwrap().to_vec();
             let output_root = big_state.state_root();
+            let save = output_root ==
+                hex_literal::hex!(
+                    "0726f1ad84d558e699ac39da582b0d6ea8506d15f8c60db57e4dfe71beb625a8"
+                );
+            if save {
+                std::fs::write("big_state.bin", &big_state_bytes).unwrap();
+                std::fs::write("state_diff.bin", bincode::serialize(&state_diffs[i]).unwrap())
+                    .unwrap();
+            }
 
             #[cfg(debug_assertions)]
             {
                 println!("DEBUG STATE UPDATE!");
+                if save {
+                    std::fs::write(
+                        "debug_state.bin",
+                        bincode::serialize(&subblock_parent_state).unwrap(),
+                    )
+                    .unwrap();
+                }
                 subblock_parent_state.update(&state_diffs[i]);
                 let debug_root = subblock_parent_state.state_root();
                 assert_eq!(output_root, debug_root);
