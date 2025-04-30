@@ -104,29 +104,43 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::builder().cpu().build();
+    let client =
+        tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
     let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
-    let redis_artifact_client = RedisArtifactClient::new(
-        std::env::var("REDIS_NODES")
+
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "s3")] {
+            let artifact_client = sp1_worker::artifact::S3ArtifactClient::new(
+                std::env::var("S3_REGION").unwrap_or("us-east-2".to_string()),
+                std::env::var("S3_BUCKET").unwrap(),
+                std::env::var("S3_CONCURRENCY")
+                    .map(|s| s.parse().unwrap_or(32))
+                    .unwrap_or(32),
+            )
+            .await;
+        } else {
+            let artifact_client = RedisArtifactClient::new(
+                std::env::var("REDIS_NODES")
             .expect("REDIS_NODES is not set")
             .split(',')
             .map(|s| s.to_string())
             .collect(),
-        std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
-    );
+                std::env::var("REDIS_POOL_MAX_SIZE")
+                    .unwrap_or("16".to_string())
+                    .parse()
+                    .unwrap(),
+            );
+        }
+    }
 
     // Setup the proving key and verification key.
     let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
 
-    let elf_artifact = upload_artifact(
-        &redis_artifact_client,
-        "subblock_elf",
-        &subblock_pk.elf,
-        ArtifactType::Program,
-    )
-    .await?;
+    let elf_artifact =
+        upload_artifact(&artifact_client, "subblock_elf", &subblock_pk.elf, ArtifactType::Program)
+            .await?;
 
     let mut public_values = Vec::new();
     let mut agg_stdin = SP1Stdin::new();
@@ -162,7 +176,7 @@ async fn main() -> eyre::Result<()> {
             elf_artifact.clone(),
             stdin,
             &mut cluster_client,
-            &redis_artifact_client,
+            &artifact_client,
             args.execute,
         )
         .await?;
@@ -177,7 +191,7 @@ async fn main() -> eyre::Result<()> {
     let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
     let agg_elf_artifact =
-        upload_artifact(&redis_artifact_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
+        upload_artifact(&artifact_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
 
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
@@ -194,7 +208,7 @@ async fn main() -> eyre::Result<()> {
         agg_elf_artifact.clone(),
         agg_stdin,
         &mut cluster_client,
-        &redis_artifact_client,
+        &artifact_client,
         args.execute,
     )
     .await?;

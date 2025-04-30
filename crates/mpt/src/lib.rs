@@ -93,15 +93,16 @@ impl EthereumState {
         self.state_trie.hash()
     }
 
-    /// Given a state trie constructed with some storage proofs, prunes it to only include the necessary
-    /// hashes for certain addresses / storage slots touched.
+    /// Given a state trie constructed with some storage proofs, prunes it to only include the
+    /// necessary hashes for certain addresses / storage slots touched.
     ///
     /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
     pub fn prune(&mut self, touched_state: &HashMap<B256, Vec<B256>>) {
         // Iterate over all of the touched state, marking nodes touched along the way.
         let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
 
-        // Now, traverse the entire trie, replacing any nodes that are not touched with their digest.
+        // Now, traverse the entire trie, replacing any nodes that are not touched with their
+        // digest.
         let prev_state_root = self.state_root();
         self.state_trie.prune_unmarked_nodes(&touched_account_refs);
         let new_state_root = self.state_root();

@@ -735,8 +735,8 @@ impl MptNode {
             return;
         }
 
-        if !touched_refs.contains(&self.reference())
-            && !matches!(self.data, MptNodeData::Leaf(_, _))
+        if !touched_refs.contains(&self.reference()) &&
+            !matches!(self.data, MptNodeData::Leaf(_, _))
         {
             self.data = MptNodeData::Digest(self.hash());
             return;

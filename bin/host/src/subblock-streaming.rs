@@ -131,7 +131,8 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::builder().cpu().build();
+    let client =
+        tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
     let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
@@ -169,14 +170,30 @@ async fn schedule_task(
     let agg_elf = agg_pk.elf;
     let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
     let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
-    let artifact_client = RedisArtifactClient::new(
-        std::env::var("REDIS_NODES")
-            .expect("REDIS_NODES is not set")
-            .split(',')
-            .map(|s| s.to_string())
-            .collect(),
-        std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
-    );
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "s3")] {
+            let artifact_client = sp1_worker::artifact::S3ArtifactClient::new(
+                std::env::var("S3_REGION").unwrap_or("us-east-2".to_string()),
+                std::env::var("S3_BUCKET").unwrap(),
+                std::env::var("S3_CONCURRENCY")
+                    .map(|s| s.parse().unwrap_or(32))
+                    .unwrap_or(32),
+            )
+            .await;
+        } else {
+            let artifact_client = RedisArtifactClient::new(
+                std::env::var("REDIS_NODES")
+                    .expect("REDIS_NODES is not set")
+                    .split(',')
+                    .map(|s| s.to_string())
+                    .collect(),
+                std::env::var("REDIS_POOL_MAX_SIZE")
+                    .unwrap_or("16".to_string())
+                    .parse()
+                    .unwrap(),
+            );
+        }
+    }
 
     let now: std::time::Duration =
         SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -202,7 +219,8 @@ async fn schedule_task(
         Vec::with_capacity(inputs.subblock_inputs.len());
 
     // Generate the proof.
-    let client = ProverClient::builder().cpu().build();
+    let client =
+        tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
     let mut total_cycles = 0;

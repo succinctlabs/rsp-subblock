@@ -11,8 +11,7 @@ use reth_primitives::{
     revm_primitives::{AccountInfo, Bytecode},
     Address, B256, U256,
 };
-use reth_revm::db::BundleState;
-use reth_revm::DatabaseRef;
+use reth_revm::{db::BundleState, DatabaseRef};
 use reth_storage_errors::{db::DatabaseError, provider::ProviderError};
 use revm_primitives::HashMap;
 
@@ -198,7 +197,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         for (address, account) in state_diffs.state.iter() {
             match &account.info {
                 Some(info) => self.cache_accounts.borrow_mut().insert(*address, info.clone()),
-                None => self.cache_accounts.borrow_mut().insert(*address, AccountInfo::default()), // This indicates a destroyed account
+                None => self.cache_accounts.borrow_mut().insert(*address, AccountInfo::default()), /* This indicates a destroyed account */
             };
             account.storage.iter().for_each(|(k, v)| {
                 self.cache_storage
