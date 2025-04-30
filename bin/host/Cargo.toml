@@ -18,6 +18,8 @@ lazy_static = "1.5.0"
 # workspace
 rsp-host-executor.workspace = true
 rsp-client-executor.workspace = true
+rsp-mpt.workspace = true
+reth-trie.workspace = true
 
 # alloy
 alloy-provider.workspace = true
@@ -56,6 +58,10 @@ path = "src/subblock.rs"
 [[bin]]
 name = "subblock-streaming"
 path = "src/subblock-streaming.rs"
+
+[[bin]]
+name = "examine"
+path = "src/examine.rs"
 
 [features]
 default = []
