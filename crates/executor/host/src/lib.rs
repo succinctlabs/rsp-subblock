@@ -639,6 +639,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_parent_states.push(
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
             );
+            let initial_big_state = big_state.clone();
+            let initial_debug_state = subblock_parent_state.clone();
             println!("BIG STATE UPDATE!");
             big_state.update(&state_diffs[i]);
             let big_state_bytes =
@@ -649,6 +651,16 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                     "0726f1ad84d558e699ac39da582b0d6ea8506d15f8c60db57e4dfe71beb625a8"
                 );
             if save {
+                std::fs::write(
+                    "initial_big_state.bin",
+                    bincode::serialize(&initial_big_state).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(
+                    "initial_debug_state.bin",
+                    bincode::serialize(&initial_debug_state).unwrap(),
+                )
+                .unwrap();
                 std::fs::write("big_state.bin", &big_state_bytes).unwrap();
                 std::fs::write("state_diff.bin", bincode::serialize(&state_diffs[i]).unwrap())
                     .unwrap();
