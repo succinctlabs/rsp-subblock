@@ -1,7 +1,10 @@
 use itertools::Itertools;
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
-use rkyv::with::{Identity, MapKV};
+use rkyv::{
+    de,
+    with::{Identity, MapKV},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -65,17 +68,25 @@ impl EthereumState {
                             storage_trie.clear();
                         }
 
+                        let mut deferred_deletes = Vec::new();
                         for (key, value) in state_storage.storage.iter() {
                             let key = key.as_slice();
                             if value.is_zero() {
-                                println!("deleting storage key: {:?}", key);
-                                storage_trie.delete(key).unwrap();
+                                deferred_deletes.push(key);
                             } else {
                                 println!("inserting storage key: {:?}", key);
                                 storage_trie.insert_rlp(key, *value).unwrap();
                             }
+                            println!("storage_root: {:?}", storage_trie.hash());
                         }
-                        println!("storage_root: {:?}", storage_trie.hash());
+                        for key in deferred_deletes {
+                            println!("deleting storage key: {:?}", key);
+                            storage_trie.delete(key).unwrap();
+                        }
+                        println!(
+                            "FINAL STORAGE ROOT -------------------------------: {:?}",
+                            storage_trie.hash()
+                        );
                         storage_trie.hash()
                     };
 
@@ -104,7 +115,7 @@ impl EthereumState {
     /// necessary hashes for certain addresses / storage slots touched.
     ///
     /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
-    pub fn prune(&mut self, touched_state: &HashMap<B256, Vec<B256>>) {
+    pub fn prune(&mut self, touched_state: &HashedPostState) {
         // Iterate over all of the touched state, marking nodes touched along the way.
         let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
 
@@ -126,32 +137,62 @@ impl EthereumState {
 
     fn get_touched_nodes(
         &self,
-        state_diff: &HashMap<B256, Vec<B256>>,
+        post_state: &HashedPostState,
     ) -> (HashSet<MptNodeReference>, HashMap<B256, HashSet<MptNodeReference>>) {
         let mut touched_account_refs = HashSet::new();
         let mut touched_storage_refs = HashMap::<B256, HashSet<MptNodeReference>>::new();
-        for (hashed_address, keys) in state_diff.iter() {
-            let hashed_address_bytes = hashed_address.as_slice();
-            match self.storage_tries.get(hashed_address) {
-                Some(storage_trie) => {
-                    for key in keys {
-                        let key = key.as_slice();
-                        let (_, touched) = storage_trie.get_with_touched(key).unwrap();
-                        touched_storage_refs.entry(*hashed_address).or_default().extend(touched);
-                    }
+        for (hashed_address, account) in post_state.accounts.iter().sorted_by(|a, b| a.0.cmp(b.0)) {
+            println!("hashed_address: {:?}", hashed_address);
+            let hashed_address = hashed_address.as_slice();
 
-                    let (_account_ref, touched) =
-                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
-                    touched_account_refs.extend(touched);
+            match account {
+                Some(account) => {
+                    println!("inserting account: {:?}", account);
+                    let state_storage = &post_state.storages.get(hashed_address).unwrap();
+                    let storage_root = {
+                        let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
+
+                        if state_storage.wiped {
+                            println!("clearing storage");
+                            storage_trie.clear();
+                        }
+
+                        let mut deferred_deletes = Vec::new();
+                        for (key, value) in state_storage.storage.iter() {
+                            let key = key.as_slice();
+                            if value.is_zero() {
+                                deferred_deletes.push(key);
+                            } else {
+                                println!("inserting storage key: {:?}", key);
+                                storage_trie.insert_rlp(key, *value).unwrap();
+                            }
+                            println!("storage_root: {:?}", storage_trie.hash());
+                        }
+                        for key in deferred_deletes {
+                            println!("deleting storage key: {:?}", key);
+                            storage_trie.delete(key).unwrap();
+                        }
+                        println!(
+                            "FINAL STORAGE ROOT -------------------------------: {:?}",
+                            storage_trie.hash()
+                        );
+                        storage_trie.hash()
+                    };
+
+                    let state_account = TrieAccount {
+                        nonce: account.nonce,
+                        balance: account.balance,
+                        storage_root,
+                        code_hash: account.get_bytecode_hash(),
+                    };
+                    self.state_trie.insert_rlp(hashed_address, state_account).unwrap();
                 }
                 None => {
-                    let (_account_ref, touched) =
-                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
-                    touched_account_refs.extend(touched);
+                    println!("deleting account: {:?}", hashed_address);
+                    self.state_trie.delete(hashed_address).unwrap();
                 }
             }
         }
-        (touched_account_refs, touched_storage_refs)
     }
 }
 

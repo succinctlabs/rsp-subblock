@@ -625,9 +625,11 @@ impl MptNode {
     }
 
     fn delete_internal(&mut self, key_nibs: &[u8]) -> Result<bool, Error> {
+        println!("visiting node: {:?}", self.reference());
         match &mut self.data {
             MptNodeData::Null => return Ok(false),
             MptNodeData::Branch(children) => {
+                println!("i am branch");
                 if let Some((i, tail)) = key_nibs.split_first() {
                     let child = &mut children[*i as usize];
                     match child {
@@ -655,6 +657,7 @@ impl MptNode {
                     match &mut orphan.data {
                         // if the orphan is a leaf, prepend the corresponding nib to it
                         MptNodeData::Leaf(prefix, orphan_value) => {
+                            println!("branch collapsing leaf");
                             let new_nibs: Vec<_> =
                                 iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
                             self.data = MptNodeData::Leaf(
@@ -664,6 +667,7 @@ impl MptNode {
                         }
                         // if the orphan is an extension, prepend the corresponding nib to it
                         MptNodeData::Extension(prefix, orphan_child) => {
+                            println!("branch collapsing extension");
                             let new_nibs: Vec<_> =
                                 iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
                             self.data = MptNodeData::Extension(
@@ -672,7 +676,15 @@ impl MptNode {
                             );
                         }
                         // if the orphan is a branch or digest, convert to an extension
-                        MptNodeData::Branch(_) | MptNodeData::Digest(_) => {
+                        MptNodeData::Branch(_) => {
+                            println!("branch collapsing orphan branch");
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&[index as u8], false),
+                                orphan,
+                            );
+                        }
+                        MptNodeData::Digest(_) => {
+                            println!("branch collapsing orphan digest");
                             self.data = MptNodeData::Extension(
                                 to_encoded_path(&[index as u8], false),
                                 orphan,
@@ -689,6 +701,7 @@ impl MptNode {
                 self.data = MptNodeData::Null;
             }
             MptNodeData::Extension(prefix, child) => {
+                println!("i am extension");
                 let mut self_nibs = prefix_nibs(prefix);
                 if let Some(tail) = key_nibs.strip_prefix(self_nibs.as_slice()) {
                     if !child.delete_internal(tail)? {
@@ -707,12 +720,14 @@ impl MptNode {
                     }
                     // for a leaf, replace the extension with the extended leaf
                     MptNodeData::Leaf(prefix, value) => {
+                        println!("extension collapsing to leaf");
                         self_nibs.extend(prefix_nibs(prefix));
                         self.data =
                             MptNodeData::Leaf(to_encoded_path(&self_nibs, true), mem::take(value));
                     }
                     // for an extension, replace the extension with the extended extension
                     MptNodeData::Extension(prefix, node) => {
+                        println!("extension collapsing to extension");
                         self_nibs.extend(prefix_nibs(prefix));
                         self.data = MptNodeData::Extension(
                             to_encoded_path(&self_nibs, false),
