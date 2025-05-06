@@ -13,8 +13,8 @@ use sp1_worker::{
 };
 use url::Url;
 
-const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
-const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
+// const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
+// const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
 
 /// The arguments for configuring the chain data provider.
 #[derive(Debug, Clone, Parser)]
