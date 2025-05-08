@@ -3,12 +3,14 @@
 use alloy_provider::ReqwestProvider;
 use api2::conn::ClusterClientV2;
 use clap::Parser;
-use reth_primitives::B256;
+use reth_primitives::{Block, B256};
+use rkyv::util::AlignedVec;
 use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
+use rsp_mpt::EthereumState;
 use sp1_sdk::{include_elf, HashableKey, Prover, ProverClient, SP1Proof, SP1Stdin};
 use sp1_worker::{artifact::ArtifactType, redis::RedisArtifactClient};
-use std::path::PathBuf;
+use std::{io::Cursor, path::PathBuf};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
@@ -193,16 +195,25 @@ async fn main() -> eyre::Result<()> {
     let agg_elf_artifact =
         upload_artifact(&artifact_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
 
+    let mut aligned_vec = AlignedVec::<16>::new();
+    let mut reader = Cursor::new(&client_input.agg_parent_state);
+    aligned_vec.extend_from_reader(&mut reader).unwrap();
+    let parent_state =
+        rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
+    let parent_state_root = parent_state.state_root();
+
     let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
     agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
     agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     agg_stdin.write(&client_input.agg_input);
-    agg_stdin.write_vec(client_input.agg_parent_state);
+    agg_stdin.write(&parent_state_root);
 
     if args.execute {
         let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
         println!("total instructions for agg: {}", execution_report.total_instruction_count());
     }
+
+    println!("starting agg proof");
 
     let mut proof = schedule_controller(
         agg_elf_artifact.clone(),
@@ -215,6 +226,8 @@ async fn main() -> eyre::Result<()> {
 
     client.verify(&proof, &agg_vk)?;
 
+    let _parent_state_root = proof.public_values.read::<B256>();
+    let _block = proof.public_values.read::<Block>();
     let block_hash = proof.public_values.read::<B256>();
     println!("Block hash: {}", block_hash);
 

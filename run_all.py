@@ -9,13 +9,13 @@ import time # For potential sleep
 import itertools # For the counter
 
 # --- Configuration ---
-CACHE_DIR = "subblock-bench-8m"
+CACHE_DIR = "subblock-bench2-8m"
 CHAIN_ID = "1"
 CARGO_BIN = "subblock-streaming"
-CSV_FILE = "evaluation_blocks.csv"
+CSV_FILE = "grep.csv"
 NUM_WORKERS = 1 # Number of parallel processes to run (used only in concurrent mode)
 START_ROW = 1 # 1-based index for the *data* row to start processing from (after header)
-EXECUTION_MODE = "concurrent" # Options: "concurrent", "serial"
+EXECUTION_MODE = "serial" # Options: "concurrent", "serial"
 # --- End Configuration ---
 
 # --- Globals for Signal Handling & Progress ---
@@ -121,8 +121,6 @@ def run_cargo_for_block(block_number, total_blocks):
         "--block-number", str(block_number),
         "--chain-id", CHAIN_ID,
         "--cache-dir", CACHE_DIR,
-        "--execute"
-        "--simulate",
     ]
 
     proc = None
