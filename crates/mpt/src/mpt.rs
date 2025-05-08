@@ -745,6 +745,137 @@ impl MptNode {
         Ok(true)
     }
 
+    pub fn delete_with_touched(
+        &mut self,
+        key: &[u8],
+    ) -> Result<(bool, Vec<MptNodeReference>), Error> {
+        self.delete_internal_with_touched(&to_nibs(key))
+    }
+
+    fn delete_internal_with_touched(
+        &mut self,
+        key_nibs: &[u8],
+    ) -> Result<(bool, Vec<MptNodeReference>), Error> {
+        let mut result = vec![];
+        match &mut self.data {
+            MptNodeData::Null => return Ok((false, vec![])),
+            MptNodeData::Branch(children) => {
+                println!("i am branch");
+                if let Some((i, tail)) = key_nibs.split_first() {
+                    let child = &mut children[*i as usize];
+                    match child {
+                        Some(node) => {
+                            if !node.delete_internal(tail)? {
+                                return Ok((false, vec![]));
+                            }
+                            // if the node is now empty, remove it
+                            if node.is_empty() {
+                                *child = None;
+                            }
+                        }
+                        None => return Ok((false, vec![])),
+                    }
+                } else {
+                    return Err(Error::ValueInBranch);
+                }
+
+                let mut remaining = children.iter_mut().enumerate().filter(|(_, n)| n.is_some());
+                // there will always be at least one remaining node
+                let (index, node) = remaining.next().unwrap();
+                // if there is only exactly one node left, we need to convert the branch
+                if remaining.next().is_none() {
+                    let mut orphan = node.take().unwrap();
+                    match &mut orphan.data {
+                        // if the orphan is a leaf, prepend the corresponding nib to it
+                        MptNodeData::Leaf(prefix, orphan_value) => {
+                            println!("branch collapsing leaf");
+                            let new_nibs: Vec<_> =
+                                iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
+                            self.data = MptNodeData::Leaf(
+                                to_encoded_path(&new_nibs, true),
+                                mem::take(orphan_value),
+                            );
+                        }
+                        // if the orphan is an extension, prepend the corresponding nib to it
+                        MptNodeData::Extension(prefix, orphan_child) => {
+                            println!("branch collapsing extension");
+                            let new_nibs: Vec<_> =
+                                iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&new_nibs, false),
+                                mem::take(orphan_child),
+                            );
+                        }
+                        // if the orphan is a branch or digest, convert to an extension
+                        MptNodeData::Branch(_) => {
+                            println!("branch collapsing orphan branch");
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&[index as u8], false),
+                                orphan,
+                            );
+                        }
+                        MptNodeData::Digest(_) => {
+                            println!("branch collapsing orphan digest");
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&[index as u8], false),
+                                orphan,
+                            );
+                        }
+                        MptNodeData::Null => unreachable!(),
+                    }
+                }
+            }
+            MptNodeData::Leaf(prefix, _) => {
+                if prefix_nibs(prefix) != key_nibs {
+                    return Ok(false);
+                }
+                self.data = MptNodeData::Null;
+            }
+            MptNodeData::Extension(prefix, child) => {
+                println!("i am extension");
+                let mut self_nibs = prefix_nibs(prefix);
+                if let Some(tail) = key_nibs.strip_prefix(self_nibs.as_slice()) {
+                    if !child.delete_internal(tail)? {
+                        return Ok(false);
+                    }
+                } else {
+                    return Ok(false);
+                }
+
+                // an extension can only point to a branch or a digest; since it's sub trie was
+                // modified, we need to make sure that this property still holds
+                match &mut child.data {
+                    // if the child is empty, remove the extension
+                    MptNodeData::Null => {
+                        self.data = MptNodeData::Null;
+                    }
+                    // for a leaf, replace the extension with the extended leaf
+                    MptNodeData::Leaf(prefix, value) => {
+                        println!("extension collapsing to leaf");
+                        self_nibs.extend(prefix_nibs(prefix));
+                        self.data =
+                            MptNodeData::Leaf(to_encoded_path(&self_nibs, true), mem::take(value));
+                    }
+                    // for an extension, replace the extension with the extended extension
+                    MptNodeData::Extension(prefix, node) => {
+                        println!("extension collapsing to extension");
+                        self_nibs.extend(prefix_nibs(prefix));
+                        self.data = MptNodeData::Extension(
+                            to_encoded_path(&self_nibs, false),
+                            mem::take(node),
+                        );
+                    }
+                    // for a branch or digest, the extension is still correct
+                    MptNodeData::Branch(_) | MptNodeData::Digest(_) => {}
+                }
+            }
+            MptNodeData::Digest(digest) => return Err(Error::NodeNotResolved(*digest)),
+        };
+
+        self.invalidate_ref_cache();
+        Ok(true)
+    }
+
     pub fn prune_unmarked_nodes(&mut self, touched_refs: &HashSet<MptNodeReference>) {
         if self.is_empty() {
             return;

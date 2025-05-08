@@ -164,7 +164,12 @@ impl EthereumState {
                                 deferred_deletes.push(key);
                             } else {
                                 println!("inserting storage key: {:?}", key);
-                                storage_trie.insert_rlp(key, *value).unwrap();
+                                let (_gotten, touched) =
+                                    storage_trie.get_with_touched(key).unwrap();
+                                touched_storage_refs
+                                    .entry(hashed_address)
+                                    .or_default()
+                                    .insert(touched);
                             }
                             println!("storage_root: {:?}", storage_trie.hash());
                         }

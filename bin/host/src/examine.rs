@@ -40,7 +40,9 @@ async fn main() -> eyre::Result<()> {
     let state_diff: HashedPostState = bincode::deserialize(STATE_DIFF_BYTES).unwrap();
     // println!("state_diff: {:?}", state_diff);
 
+    println!("debug state update");
     initial_debug_state.update(&state_diff);
+    println!("big state update");
     initial_big_state.update(&state_diff);
 
     // let big_state_bytes = std::fs::read("big_state.bin").unwrap();
