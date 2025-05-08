@@ -117,7 +117,9 @@ impl EthereumState {
     /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
     pub fn prune(&mut self, touched_state: &HashedPostState) {
         // Iterate over all of the touched state, marking nodes touched along the way.
-        let (touched_account_refs, touched_storage_refs) = self.get_touched_nodes(touched_state);
+        let mut self_clone = self.clone();
+        let (touched_account_refs, touched_storage_refs) =
+            self_clone.get_touched_nodes(touched_state);
 
         // Now, traverse the entire trie, replacing any nodes that are not touched with their
         // digest.
@@ -136,14 +138,17 @@ impl EthereumState {
     }
 
     fn get_touched_nodes(
-        &self,
+        &mut self,
         post_state: &HashedPostState,
     ) -> (HashSet<MptNodeReference>, HashMap<B256, HashSet<MptNodeReference>>) {
         let mut touched_account_refs = HashSet::new();
         let mut touched_storage_refs = HashMap::<B256, HashSet<MptNodeReference>>::new();
-        for (hashed_address, account) in post_state.accounts.iter().sorted_by(|a, b| a.0.cmp(b.0)) {
-            println!("hashed_address: {:?}", hashed_address);
-            let hashed_address = hashed_address.as_slice();
+        for (hashed_address_b256, account) in
+            post_state.accounts.iter().sorted_by(|a, b| a.0.cmp(b.0))
+        {
+            println!("hashed_address: {:?}", hashed_address_b256);
+
+            let hashed_address = hashed_address_b256.as_slice();
 
             match account {
                 Some(account) => {
@@ -151,31 +156,28 @@ impl EthereumState {
                     let state_storage = &post_state.storages.get(hashed_address).unwrap();
                     let storage_root = {
                         let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
+                        let account_touched =
+                            touched_storage_refs.entry(*hashed_address_b256).or_default();
 
                         if state_storage.wiped {
                             println!("clearing storage");
-                            storage_trie.clear();
+                            // storage_trie.clear();
                         }
 
-                        let mut deferred_deletes = Vec::new();
                         for (key, value) in state_storage.storage.iter() {
                             let key = key.as_slice();
                             if value.is_zero() {
-                                deferred_deletes.push(key);
+                                // todo: touch stuff
+                                let (_gotten, touched) =
+                                    storage_trie.delete_with_touched(key).unwrap();
+                                account_touched.extend(touched);
                             } else {
                                 println!("inserting storage key: {:?}", key);
                                 let (_gotten, touched) =
                                     storage_trie.get_with_touched(key).unwrap();
-                                touched_storage_refs
-                                    .entry(hashed_address)
-                                    .or_default()
-                                    .insert(touched);
+                                account_touched.extend(touched);
                             }
                             println!("storage_root: {:?}", storage_trie.hash());
-                        }
-                        for key in deferred_deletes {
-                            println!("deleting storage key: {:?}", key);
-                            storage_trie.delete(key).unwrap();
                         }
                         println!(
                             "FINAL STORAGE ROOT -------------------------------: {:?}",
@@ -184,20 +186,19 @@ impl EthereumState {
                         storage_trie.hash()
                     };
 
-                    let state_account = TrieAccount {
-                        nonce: account.nonce,
-                        balance: account.balance,
-                        storage_root,
-                        code_hash: account.get_bytecode_hash(),
-                    };
-                    self.state_trie.insert_rlp(hashed_address, state_account).unwrap();
+                    let (_gotten, touched) =
+                        self.state_trie.get_with_touched(hashed_address).unwrap();
+                    touched_account_refs.extend(touched);
                 }
                 None => {
                     println!("deleting account: {:?}", hashed_address);
-                    self.state_trie.delete(hashed_address).unwrap();
+                    let (_gotten, touched) =
+                        self.state_trie.delete_with_touched(hashed_address).unwrap();
+                    touched_account_refs.extend(touched);
                 }
             }
         }
+        (touched_account_refs, touched_storage_refs)
     }
 }
 

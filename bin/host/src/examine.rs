@@ -40,10 +40,18 @@ async fn main() -> eyre::Result<()> {
     let state_diff: HashedPostState = bincode::deserialize(STATE_DIFF_BYTES).unwrap();
     // println!("state_diff: {:?}", state_diff);
 
-    println!("debug state update");
-    initial_debug_state.update(&state_diff);
-    println!("big state update");
-    initial_big_state.update(&state_diff);
+    let mut unpruned_big_state = initial_big_state.clone();
+    unpruned_big_state.update(&state_diff);
+
+    println!("unpruned big state: {:?}", unpruned_big_state.state_root());
+
+    let mut big_state = initial_big_state.clone();
+    big_state.prune(&state_diff);
+    big_state.update(&state_diff);
+
+    println!("pruned big state: {:?}", big_state.state_root());
+
+    // initial_debug_state.update(&state_diff);
 
     // let big_state_bytes = std::fs::read("big_state.bin").unwrap();
     // let big_state =
