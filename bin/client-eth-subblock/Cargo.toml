@@ -13,7 +13,7 @@ rsp-mpt = { path = "../../crates/mpt" }
 
 
 # sp1
-sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "v6-cluster-stable" }
+sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
 
 # rkyv
 rkyv = "0.8.10"

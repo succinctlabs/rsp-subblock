@@ -1,12 +1,8 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use rkyv::util::AlignedVec;
-use rsp_client_executor::{
-    io::{read_aligned_vec, AggregationInput},
-    ClientExecutor, EthereumVariant,
-};
-use rsp_mpt::EthereumState;
+use reth_primitives::B256;
+use rsp_client_executor::{io::AggregationInput, ClientExecutor, EthereumVariant};
 
 pub fn main() {
     // Read the input.
@@ -18,11 +14,9 @@ pub fn main() {
     let aggregation_input = sp1_zkvm::io::read::<AggregationInput>();
     println!("cycle-tracker-end: deserialize aggregation input");
 
-    println!("cycle-tracker-start: deserialize parent state");
-    let aligned = read_aligned_vec::<16>();
-    let parent_state =
-        rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned).unwrap();
-    println!("cycle-tracker-end: deserialize parent state");
+    let parent_state_root = sp1_zkvm::io::read::<B256>();
+    sp1_zkvm::io::commit(&parent_state_root);
+    sp1_zkvm::io::commit(&aggregation_input.current_block);
     println!("cycle-tracker-end: deserialize");
 
     let client = ClientExecutor;
@@ -32,7 +26,7 @@ pub fn main() {
             public_values,
             vkey,
             aggregation_input,
-            parent_state,
+            parent_state_root,
         )
         .expect("failed to execute aggregation");
 

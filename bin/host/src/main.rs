@@ -22,8 +22,8 @@ mod execute;
 
 mod eth_proofs;
 
-const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
-const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
+// const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
+// const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]

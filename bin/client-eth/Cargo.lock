@@ -3476,7 +3476,7 @@ dependencies = [
 [[package]]
 name = "sp1-lib"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=v6-cluster-stable#561b1fc5942fb9080fa294017836c376fcc4df33"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=multilinear_v6#5c8b6364a587ea9b6f4d7379c39859448288596d"
 dependencies = [
  "bincode",
  "serde",
@@ -3498,7 +3498,7 @@ dependencies = [
 [[package]]
 name = "sp1-primitives"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=v6-cluster-stable#561b1fc5942fb9080fa294017836c376fcc4df33"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=multilinear_v6#5c8b6364a587ea9b6f4d7379c39859448288596d"
 dependencies = [
  "bincode",
  "hex",
@@ -3534,7 +3534,7 @@ dependencies = [
 [[package]]
 name = "sp1-zkvm"
 version = "4.0.1"
-source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=v6-cluster-stable#561b1fc5942fb9080fa294017836c376fcc4df33"
+source = "git+https://github.com/succinctlabs/sp1-wip.git?branch=multilinear_v6#5c8b6364a587ea9b6f4d7379c39859448288596d"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.15",

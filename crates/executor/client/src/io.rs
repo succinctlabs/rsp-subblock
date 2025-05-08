@@ -6,7 +6,7 @@ use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{
     revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, B256, U256,
 };
-use reth_trie::{HashedPostState, TrieAccount};
+use reth_trie::{HashedPostState, TrieAccount, EMPTY_ROOT_HASH};
 use revm::{db::WrapDatabaseRef, DatabaseRef};
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
@@ -442,6 +442,15 @@ pub trait WitnessInput {
 
         if self.state_anchor() != state.state_root() {
             return Err(ClientError::MismatchedStateRoot);
+        }
+        
+        for (hashed_address, storage_trie) in state.storage_tries.iter() {
+            let account =
+                state.state_trie.get_rlp::<TrieAccount>(hashed_address.as_slice()).unwrap();
+            let storage_root = account.map_or(EMPTY_ROOT_HASH, |a| a.storage_root);
+            if storage_root != storage_trie.hash() {
+                return Err(ClientError::MismatchedStorageRoot);
+            }
         }
 
         let bytecodes_by_hash =

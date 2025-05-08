@@ -28,7 +28,7 @@ use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{address, U256};
+use revm_primitives::{address, B256, U256};
 use rkyv::util::AlignedVec;
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
@@ -286,11 +286,11 @@ impl ClientExecutor {
         public_values: Vec<Vec<u8>>,
         vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
-        parent_state: EthereumState,
+        parent_state_root: B256,
     ) -> Result<Header, ClientError> {
         // TODO: pass in the parent state root as plaintext should be fine.
         let mut cumulative_state_diff =
-            SubblockOutput { output_state_root: parent_state.state_root(), ..Default::default() };
+            SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
         profile!("aggregate", {
             for public_value in public_values {

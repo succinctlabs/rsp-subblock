@@ -5,16 +5,17 @@
 use alloy_provider::ReqwestProvider;
 use api2::{conn::ClusterClientV2, worker::CreateDummyProofRequest};
 use clap::Parser;
-use reth_primitives::B256;
-use rsp_client_executor::io::{AggregationInput, SubblockHostOutput, SubblockInput};
+use reth_primitives::{Block, B256};
+use rkyv::util::AlignedVec;
+use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
-use serde::{Deserialize, Serialize};
+use rsp_mpt::EthereumState;
 use sp1_sdk::{
     include_elf, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
     SP1Stdin, SP1VerifyingKey,
 };
 use std::{
-    io::Write,
+    io::{Cursor, Write},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -60,12 +61,6 @@ struct HostArgs {
     /// The path to the CSV file containing the execution data.
     #[clap(long, default_value = "report.csv")]
     report_path: PathBuf,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheData {
-    pub subblock_inputs: Vec<SubblockInput>,
-    pub agg_input: AggregationInput,
 }
 
 lazy_static::lazy_static! {
@@ -150,6 +145,8 @@ async fn main() -> eyre::Result<()> {
     .await?;
 
     if let Some(mut proof) = proof {
+        let _parent_state_root = proof.public_values.read::<B256>();
+        let _block = proof.public_values.read::<Block>();
         let block_hash = proof.public_values.read::<B256>();
 
         println!("block hash: {}", block_hash);
@@ -316,6 +313,7 @@ async fn schedule_task(
         agg_stdin_artifact.id,
     ];
 
+    let now = std::time::Instant::now();
     let task_id = cluster_client
         .client
         .create_task(
@@ -331,11 +329,21 @@ async fn schedule_task(
 
     println!("Task created: {}", task_id);
 
-    cluster_client
-        .client
-        .wait_tasks(proof_id.clone(), &[task_id.clone()])
-        .await
-        .map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+    let result = cluster_client.client.wait_tasks(proof_id.clone(), &[task_id.clone()]).await;
+
+    if result.is_err() {
+        // write (block_number, "failed") to times.csv
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("times.csv")
+            .unwrap()
+            .write_all(format!("{}, failed\n", block_number).as_bytes())
+            .unwrap();
+    }
+    result.map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+
+    let elapsed = now.elapsed();
 
     if simulate {
         let result: String = artifact_client
@@ -364,6 +372,13 @@ async fn schedule_task(
             .await
             .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
         client.verify(&result, &agg_pk.vk)?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("times.csv")
+            .unwrap()
+            .write_all(format!("{}, {}\n", block_number, elapsed.as_secs_f32()).as_bytes())
+            .unwrap();
         Ok(Some(result))
     }
 }
@@ -394,10 +409,18 @@ pub fn to_aggregation_stdin(
 
         public_values.push(current_public_values);
     }
+
+    let mut aligned_vec = AlignedVec::<16>::new();
+    let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
+    aligned_vec.extend_from_reader(&mut reader).unwrap();
+    let parent_state =
+        rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
+    let parent_state_root = parent_state.state_root();
+
     stdin.write::<Vec<Vec<u8>>>(&public_values);
     stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     stdin.write(&subblock_host_output.agg_input);
-    stdin.write_vec(subblock_host_output.agg_parent_state);
+    stdin.write(&parent_state_root);
     stdin
 }
 
