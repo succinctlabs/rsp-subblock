@@ -606,34 +606,34 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
         for i in 0..subblock_inputs.len() {
             let input_root = big_state.state_root();
             // Get the touched addresses / storage slots in this subblock.
-            // let mut touched_state = HashMap::new();
-            // for (address, used_keys) in all_state_requests[i].iter() {
-            //     let modified_keys = all_executor_outcomes[i]
-            //         .state()
-            //         .state
-            //         .get(address)
-            //         .map(|account| {
-            //             account.storage.keys().map(|key|
-            // B256::from(*key)).collect::<BTreeSet<_>>()         })
-            //         .unwrap_or_default()
-            //         .into_iter()
-            //         .collect::<Vec<_>>();
+            let mut touched_state = HashMap::new();
+            for (address, used_keys) in all_state_requests[i].iter() {
+                let modified_keys = all_executor_outcomes[i]
+                    .state()
+                    .state
+                    .get(address)
+                    .map(|account| {
+                        account.storage.keys().map(|key| B256::from(*key)).collect::<BTreeSet<_>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect::<Vec<_>>();
 
-            //     let keys = used_keys
-            //         .iter()
-            //         .map(|key| B256::from(*key))
-            //         .chain(modified_keys.clone().into_iter())
-            //         .collect::<BTreeSet<_>>()
-            //         .into_iter()
-            //         .map(keccak256)
-            //         .collect::<Vec<_>>();
+                let keys = used_keys
+                    .iter()
+                    .map(|key| B256::from(*key))
+                    .chain(modified_keys.clone().into_iter())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(keccak256)
+                    .collect::<Vec<_>>();
 
-            //     touched_state.insert(keccak256(address), keys);
-            // }
+                touched_state.insert(keccak256(address), keys);
+            }
 
             let mut subblock_parent_state = big_state.clone();
             let prev_root = subblock_parent_state.state_root();
-            subblock_parent_state.prune(&state_diffs[i]);
+            subblock_parent_state.prune(&state_diffs[i], &touched_state);
             let new_root = subblock_parent_state.state_root();
             assert_eq!(prev_root, new_root);
             subblock_parent_states.push(

@@ -101,11 +101,15 @@ impl EthereumState {
     /// necessary hashes for certain addresses / storage slots touched.
     ///
     /// Note: never called in the zkvm, so it's pretty fine that this is not optimized.
-    pub fn prune(&mut self, touched_state: &HashedPostState) {
+    pub fn prune(
+        &mut self,
+        state_diff: &HashedPostState,
+        touched_state: &HashMap<B256, Vec<B256>>,
+    ) {
         // Iterate over all of the touched state, marking nodes touched along the way.
         let mut self_clone = self.clone();
         let (touched_account_refs, touched_storage_refs) =
-            self_clone.get_touched_nodes(touched_state);
+            self_clone.get_touched_nodes(state_diff, touched_state);
 
         // Now, traverse the entire trie, replacing any nodes that are not touched with their
         // digest.
@@ -126,6 +130,7 @@ impl EthereumState {
     fn get_touched_nodes(
         &mut self,
         post_state: &HashedPostState,
+        touched_state: &HashMap<B256, Vec<B256>>,
     ) -> (HashSet<MptNodeReference>, HashMap<B256, HashSet<MptNodeReference>>) {
         let mut touched_account_refs = HashSet::new();
         let mut touched_storage_refs = HashMap::<B256, HashSet<MptNodeReference>>::new();
@@ -135,7 +140,7 @@ impl EthereumState {
             let hashed_address = hashed_address_b256.as_slice();
 
             match account {
-                Some(account) => {
+                Some(_account) => {
                     let state_storage = &post_state.storages.get(hashed_address).unwrap();
 
                     let storage_trie = self.storage_tries.get_mut(hashed_address).unwrap();
@@ -149,12 +154,15 @@ impl EthereumState {
 
                     for (key, value) in state_storage.storage.iter() {
                         let key = key.as_slice();
+                        let mut deferred_deletes = Vec::new();
                         if value.is_zero() {
-                            // todo: touch stuff
-                            let (_gotten, touched) = storage_trie.delete_with_touched(key).unwrap();
-                            account_touched.extend(touched);
+                            deferred_deletes.push(key);
                         } else {
                             let (_gotten, touched) = storage_trie.get_with_touched(key).unwrap();
+                            account_touched.extend(touched);
+                        }
+                        for key in deferred_deletes {
+                            let (_gotten, touched) = storage_trie.delete_with_touched(key).unwrap();
                             account_touched.extend(touched);
                         }
                     }
@@ -164,8 +172,30 @@ impl EthereumState {
                     touched_account_refs.extend(touched);
                 }
                 None => {
+                    println!("deleting account");
                     let (_gotten, touched) =
                         self.state_trie.delete_with_touched(hashed_address).unwrap();
+                    touched_account_refs.extend(touched);
+                }
+            }
+        }
+
+        for (hashed_address, keys) in touched_state.iter() {
+            let hashed_address_bytes = hashed_address.as_slice();
+            match self.storage_tries.get(hashed_address) {
+                Some(storage_trie) => {
+                    for key in keys {
+                        let key = key.as_slice();
+                        let (_, touched) = storage_trie.get_with_touched(key).unwrap();
+                        touched_storage_refs.entry(*hashed_address).or_default().extend(touched);
+                    }
+                    let (_account_ref, touched) =
+                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
+                    touched_account_refs.extend(touched);
+                }
+                None => {
+                    let (_account_ref, touched) =
+                        self.state_trie.get_with_touched(hashed_address_bytes).unwrap();
                     touched_account_refs.extend(touched);
                 }
             }
@@ -184,7 +214,7 @@ pub enum FromProofError {
     NodeCannotHaveChildren(usize),
     #[error("Found mismatched storage root after reconstruction \n account {}, found {}, expected {}", .0, .1, .2)]
     MismatchedStorageRoot(Address, B256, B256),
-    #[error("Found mismatched staet root after reconstruction \n found {}, expected {}", .0, .1)]
+    #[error("Found mismatched state root after reconstruction \n found {}, expected {}", .0, .1)]
     MismatchedStateRoot(B256, B256),
     // todo: Should decode return a decoder error?
     #[error("Error decoding proofs from bytes, {}", .0)]

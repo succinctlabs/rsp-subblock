@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use reth_primitives::hex_literal;
 use reth_trie::{HashedPostState, TrieAccount};
 use rsp_mpt::EthereumState;
@@ -46,7 +48,7 @@ async fn main() -> eyre::Result<()> {
     println!("unpruned big state: {:?}", unpruned_big_state.state_root());
 
     let mut big_state = initial_big_state.clone();
-    big_state.prune(&state_diff);
+    big_state.prune(&state_diff, &HashMap::new());
     big_state.update(&state_diff);
 
     println!("pruned big state: {:?}", big_state.state_root());
