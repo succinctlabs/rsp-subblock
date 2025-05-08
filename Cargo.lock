@@ -4247,7 +4247,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6032,7 +6032,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap 0.10.0",
@@ -6598,7 +6598,7 @@ dependencies = [
 [[package]]
 name = "reth-blockchain-tree-api"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-consensus",
  "reth-execution-errors",
@@ -6610,7 +6610,7 @@ dependencies = [
 [[package]]
 name = "reth-chainspec"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-chains",
  "alloy-eips 0.3.6",
@@ -6632,7 +6632,7 @@ dependencies = [
 [[package]]
 name = "reth-codecs"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-consensus 0.3.6",
  "alloy-eips 0.3.6",
@@ -6648,7 +6648,7 @@ dependencies = [
 [[package]]
 name = "reth-codecs-derive"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -6659,7 +6659,7 @@ dependencies = [
 [[package]]
 name = "reth-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "auto_impl",
  "derive_more",
@@ -6669,7 +6669,7 @@ dependencies = [
 [[package]]
 name = "reth-consensus-common"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -6679,7 +6679,7 @@ dependencies = [
 [[package]]
 name = "reth-db-models"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "bytes",
  "modular-bitfield",
@@ -6691,7 +6691,7 @@ dependencies = [
 [[package]]
 name = "reth-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-blockchain-tree-api",
  "reth-consensus",
@@ -6704,7 +6704,7 @@ dependencies = [
 [[package]]
 name = "reth-ethereum-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -6716,7 +6716,7 @@ dependencies = [
 [[package]]
 name = "reth-ethereum-forks"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -6733,7 +6733,7 @@ dependencies = [
 [[package]]
 name = "reth-evm"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-eips 0.3.6",
  "auto_impl",
@@ -6751,7 +6751,7 @@ dependencies = [
 [[package]]
 name = "reth-evm-ethereum"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-eips 0.3.6",
  "alloy-sol-types",
@@ -6769,7 +6769,7 @@ dependencies = [
 [[package]]
 name = "reth-evm-optimism"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-ethereum-forks",
@@ -6789,7 +6789,7 @@ dependencies = [
 [[package]]
 name = "reth-execution-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-eips 0.3.6",
  "alloy-primitives",
@@ -6805,7 +6805,7 @@ dependencies = [
 [[package]]
 name = "reth-execution-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-execution-errors",
@@ -6817,7 +6817,7 @@ dependencies = [
 [[package]]
 name = "reth-fs-util"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "serde",
  "serde_json",
@@ -6827,7 +6827,7 @@ dependencies = [
 [[package]]
 name = "reth-network-peers"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -6840,7 +6840,7 @@ dependencies = [
 [[package]]
 name = "reth-optimism-chainspec"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -6855,7 +6855,7 @@ dependencies = [
 [[package]]
 name = "reth-optimism-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -6867,7 +6867,7 @@ dependencies = [
 [[package]]
 name = "reth-primitives"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-consensus 0.3.6",
  "alloy-eips 0.3.6",
@@ -6898,7 +6898,7 @@ dependencies = [
 [[package]]
 name = "reth-primitives-traits"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-consensus 0.3.6",
  "alloy-eips 0.3.6",
@@ -6920,7 +6920,7 @@ dependencies = [
 [[package]]
 name = "reth-prune-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-primitives",
  "bytes",
@@ -6934,7 +6934,7 @@ dependencies = [
 [[package]]
 name = "reth-revm"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "reth-chainspec",
  "reth-consensus-common",
@@ -6949,7 +6949,7 @@ dependencies = [
 [[package]]
 name = "reth-stages-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-primitives",
  "bytes",
@@ -6962,7 +6962,7 @@ dependencies = [
 [[package]]
 name = "reth-static-file-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-primitives",
  "derive_more",
@@ -6973,7 +6973,7 @@ dependencies = [
 [[package]]
 name = "reth-storage-api"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "auto_impl",
  "reth-chainspec",
@@ -6989,7 +6989,7 @@ dependencies = [
 [[package]]
 name = "reth-storage-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-rlp",
  "derive_more",
@@ -7000,7 +7000,7 @@ dependencies = [
 [[package]]
 name = "reth-trie"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -7022,7 +7022,7 @@ dependencies = [
 [[package]]
 name = "reth-trie-common"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#8712cce2e21a7162432ae3d2449f961404c528f9"
 dependencies = [
  "alloy-consensus 0.3.6",
  "alloy-genesis",

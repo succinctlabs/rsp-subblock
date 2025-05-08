@@ -26,7 +26,6 @@ use tracing_subscriber::{
 use sp1_worker::{
     artifact::{ArtifactClient, ArtifactType},
     proto::{Artifact, TaskType},
-    redis::RedisArtifactClient,
     V2Client,
 };
 
@@ -245,6 +244,7 @@ async fn schedule_task(
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
             let subblock_instruction_count = report.total_instruction_count();
+            println!("subblock_instruction_count: {}", subblock_instruction_count);
             total_cycles += subblock_instruction_count;
             max_cycles = if max_cycles < subblock_instruction_count {
                 subblock_instruction_count
@@ -295,6 +295,7 @@ async fn schedule_task(
             .run()
             .unwrap();
         let agg_instruction_count = report.total_instruction_count();
+        println!("agg_instruction_count: {}", agg_instruction_count);
         total_cycles += agg_instruction_count;
         max_cycles =
             if max_cycles < agg_instruction_count { agg_instruction_count } else { max_cycles };
@@ -342,6 +343,15 @@ async fn schedule_task(
             .unwrap();
     }
     result.map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
+
+    let mut debug_log_file =
+        std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
+    debug_log_file
+        .write_all(
+            format!("{}, {}, {}, {}\n", block_number, proof_id, total_cycles, max_cycles)
+                .as_bytes(),
+        )
+        .unwrap();
 
     let elapsed = now.elapsed();
 

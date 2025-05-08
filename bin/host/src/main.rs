@@ -2,15 +2,13 @@ use alloy_provider::ReqwestProvider;
 use api2::conn::ClusterClientV2;
 use clap::Parser;
 use eth_proofs::EthProofsClient;
-use execute::process_execution_report;
-use reth_primitives::B256;
 use rsp_client_executor::{
     io::ClientExecutorInput, ChainVariant, CHAIN_ID_ETH_MAINNET, CHAIN_ID_LINEA_MAINNET,
     CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
 };
 use rsp_host_executor::HostExecutor;
 use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
-use sp1_worker::{artifact::ArtifactType, redis::RedisArtifactClient};
+use sp1_worker::artifact::ArtifactType;
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -154,8 +152,9 @@ async fn main() -> eyre::Result<()> {
     // let (pk, vk) = client.setup(FIB_ELF).await;
     // let stdin: SP1Stdin = bincode::deserialize(FIB_STDIN).unwrap();
     // Only execute the program.
-    // let (mut public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
+    let (_public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
+    println!("execution_report: {}", execution_report);
     // // Read the block hash.
     // let block_hash = public_values.read::<B256>();
     // println!("success: block_hash={block_hash}");

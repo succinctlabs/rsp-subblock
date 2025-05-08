@@ -15,10 +15,10 @@ resolver = "2"
 inherits = "release"
 debug-assertions = true
 debug = true
-# lto = true
+# lto = "fat"
 
-# [profile.release]
-# lto = true
+[profile.release]
+# lto = "fat"
 
 [workspace.package]
 edition = "2021"

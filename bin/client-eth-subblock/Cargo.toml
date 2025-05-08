@@ -4,6 +4,9 @@ name = "rsp-client-eth-subblock"
 description = ""
 edition = "2021"
 
+[profile.release]
+# lto = "fat"
+
 [dependencies]
 bincode = "1.3.3"
 

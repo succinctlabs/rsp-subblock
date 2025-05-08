@@ -633,8 +633,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             }
 
             let mut subblock_parent_state = big_state.clone();
+            let serialized_size =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
             let prev_root = subblock_parent_state.state_root();
-            subblock_parent_state.prune(&touched_state);
+            subblock_parent_state.prune(&state_diffs[i], &touched_state);
+            let new_serialized_size =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
+            println!("compression ratio: {}", serialized_size as f64 / new_serialized_size as f64);
             let new_root = subblock_parent_state.state_root();
             assert_eq!(prev_root, new_root);
             subblock_parent_states.push(
