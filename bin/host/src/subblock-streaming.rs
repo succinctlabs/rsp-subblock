@@ -3,36 +3,26 @@
 //! Directly creates an aggregation task.
 
 use alloy_provider::ReqwestProvider;
-use api2::{conn::ClusterClientV2, worker::CreateDummyProofRequest};
 use clap::Parser;
-use reth_primitives::{Block, B256};
 use rkyv::util::AlignedVec;
 use rsp_client_executor::io::SubblockHostOutput;
 use rsp_host_executor::HostExecutor;
 use rsp_mpt::EthereumState;
 use sp1_sdk::{
-    include_elf, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues, SP1ProvingKey,
-    SP1Stdin, SP1VerifyingKey,
+    include_elf, HashableKey, Prover, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
 };
 use std::{
     io::{Cursor, Write},
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
-use sp1_worker::{
-    artifact::{ArtifactClient, ArtifactType},
-    proto::{Artifact, TaskType},
-    V2Client,
-};
-
 mod execute;
 
 mod cli;
-use cli::{upload_artifact, ProviderArgs};
+use cli::ProviderArgs;
 
 mod eth_proofs;
 
@@ -47,9 +37,8 @@ struct HostArgs {
     /// Whether to pre-execute the block.
     #[clap(long)]
     execute: bool,
-    /// Whether we are running in a simulator or not.
     #[clap(long)]
-    simulate: bool,
+    dump_dir: Option<PathBuf>,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
@@ -133,23 +122,15 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
-    let proof = schedule_task(
+    schedule_task(
         subblock_pk,
         args.block_number,
         agg_pk,
         client_input,
         args.execute,
-        args.simulate,
+        args.dump_dir,
     )
     .await?;
-
-    if let Some(mut proof) = proof {
-        let _parent_state_root = proof.public_values.read::<B256>();
-        let _block = proof.public_values.read::<Block>();
-        let block_hash = proof.public_values.read::<B256>();
-
-        println!("block hash: {}", block_hash);
-    }
 
     Ok(())
 }
@@ -160,67 +141,28 @@ async fn schedule_task(
     agg_pk: SP1ProvingKey,
     inputs: SubblockHostOutput,
     execute: bool,
-    simulate: bool,
-) -> eyre::Result<Option<SP1ProofWithPublicValues>> {
+    dump_dir: Option<PathBuf>,
+) -> eyre::Result<()> {
     let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
     let agg_elf = agg_pk.elf;
-    let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
-    let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "s3")] {
-            let artifact_client = sp1_worker::artifact::S3ArtifactClient::new(
-                std::env::var("S3_REGION").unwrap_or("us-east-2".to_string()),
-                std::env::var("S3_BUCKET").unwrap(),
-                std::env::var("S3_CONCURRENCY")
-                    .map(|s| s.parse().unwrap_or(32))
-                    .unwrap_or(32),
-            )
-            .await;
-        } else {
-            let artifact_client = sp1_worker::redis::RedisArtifactClient::new(
-                std::env::var("REDIS_NODES")
-                    .expect("REDIS_NODES is not set")
-                    .split(',')
-                    .map(|s| s.to_string())
-                    .collect(),
-                std::env::var("REDIS_POOL_MAX_SIZE")
-                    .unwrap_or("16".to_string())
-                    .parse()
-                    .unwrap(),
-            );
-        }
+
+    let dump_dir = dump_dir.map(|d| d.join(format!("{}", block_number)));
+
+    if let Some(dump_dir) = dump_dir.as_ref() {
+        std::fs::create_dir_all(dump_dir)?;
+        std::fs::write(dump_dir.join("subblock_elf.bin"), subblock_elf.as_ref())?;
+        std::fs::write(dump_dir.join("subblock_vk.bin"), bincode::serialize(&subblock_vk)?)?;
+        std::fs::write(dump_dir.join("agg_elf.bin"), agg_elf.as_ref())?;
     }
 
-    let now: std::time::Duration =
-        SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
-
-    let proof_id = format!("rsp_{}", now.as_secs());
-
-    let worker_id = format!("worker_{}", now.as_secs());
-
-    println!("proof_id: {}", proof_id);
-
-    cluster_client
-        .client
-        .client
-        .create_dummy_proof(CreateDummyProofRequest {
-            worker_id: worker_id.clone(),
-            proof_id: proof_id.clone(),
-            requester: "yuwens_mac".to_string(),
-            expires_at: 0,
-        })
-        .await?;
-
-    let mut subblock_input_artifacts: Vec<Artifact> =
-        Vec::with_capacity(inputs.subblock_inputs.len());
-
-    // Generate the proof.
     let client =
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
-    let mut total_cycles = 0;
-    let mut max_cycles = 0;
+    if let Some(dump_dir) = dump_dir.as_ref() {
+        let stdin_path = dump_dir.join("agg_stdin.bin");
+        std::fs::write(stdin_path, bincode::serialize(&aggregation_stdin)?)?;
+    }
 
     for i in 0..inputs.subblock_inputs.len() {
         let input = &inputs.subblock_inputs[i];
@@ -229,64 +171,21 @@ async fn schedule_task(
         let mut stdin = SP1Stdin::new();
         stdin.write(input);
         stdin.write_vec(parent_state.clone());
-        #[cfg(debug_assertions)]
-        {
-            // Save the elf/stdin pair to the dump directory.
-            let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
-            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
-            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
-            std::fs::write(elf_path, subblock_elf.as_ref())?;
+
+        // Save the elf/stdin pair to the dump directory.
+        if let Some(dump_dir) = dump_dir.as_ref() {
+            let stdin_dir_path = dump_dir.join("subblock_stdins");
+            std::fs::create_dir_all(&stdin_dir_path)?;
+            let stdin_path = stdin_dir_path.join(format!("{}.bin", i));
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
-        let artifact_handle =
-            upload_artifact(&artifact_client, "subblock_input", &stdin, ArtifactType::Stdin);
 
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
             let subblock_instruction_count = report.total_instruction_count();
             println!("subblock_instruction_count: {}", subblock_instruction_count);
-            total_cycles += subblock_instruction_count;
-            max_cycles = if max_cycles < subblock_instruction_count {
-                subblock_instruction_count
-            } else {
-                max_cycles
-            };
         }
-        let artifact = artifact_handle.await?;
-        subblock_input_artifacts.push(artifact);
     }
-
-    // Create an artifact index for the subblock inputs.
-    let subblock_input_index =
-        subblock_input_artifacts.iter().map(|a| a.id.clone()).collect::<Vec<_>>();
-    let subblock_input_index_artifact: Artifact = upload_artifact(
-        &artifact_client,
-        "subblock_input_index",
-        subblock_input_index,
-        ArtifactType::UnspecifiedArtifactType,
-    )
-    .await?;
-
-    // Create artifacts for the subblock stuff.
-    let subblock_elf_artifact: Artifact =
-        upload_artifact(&artifact_client, "subblock_elf", subblock_elf, ArtifactType::Program)
-            .await?;
-
-    let subblock_vk_artifact: Artifact = upload_artifact(
-        &artifact_client,
-        "subblock_vk",
-        subblock_vk,
-        ArtifactType::UnspecifiedArtifactType,
-    )
-    .await?;
-
-    // Create artifacts for the aggregation stuff.
-    let agg_elf_artifact: Artifact =
-        upload_artifact(&artifact_client, "agg_elf", &agg_elf, ArtifactType::Program).await?;
-
-    let agg_stdin_artifact: Artifact =
-        upload_artifact(&artifact_client, "agg_stdin", &aggregation_stdin, ArtifactType::Stdin)
-            .await?;
 
     if execute {
         let (_public_values, report) = client
@@ -296,101 +195,9 @@ async fn schedule_task(
             .unwrap();
         let agg_instruction_count = report.total_instruction_count();
         println!("agg_instruction_count: {}", agg_instruction_count);
-        total_cycles += agg_instruction_count;
-        max_cycles =
-            if max_cycles < agg_instruction_count { agg_instruction_count } else { max_cycles };
     }
 
-    // Create an empty artifact for the output
-    let output_artifact: Artifact = artifact_client
-        .create_artifact_blocking("agg_output", 0)
-        .map_err(|e| eyre::eyre!("Failed to create output artifact: {}", e))?;
-
-    let input_ids = vec![
-        subblock_elf_artifact.id,
-        subblock_input_index_artifact.id,
-        subblock_vk_artifact.id,
-        agg_elf_artifact.id,
-        agg_stdin_artifact.id,
-    ];
-
-    let now = std::time::Instant::now();
-    let task_id = cluster_client
-        .client
-        .create_task(
-            TaskType::Sp1SubblockAggregator,
-            &input_ids,
-            &[output_artifact.id.clone()],
-            proof_id.clone(),
-            None,
-            None,
-        )
-        .await
-        .map_err(|e| eyre::eyre!("Failed to create task: {}", e))?;
-
-    println!("Task created: {}", task_id);
-
-    let result = cluster_client.client.wait_tasks(proof_id.clone(), &[task_id.clone()]).await;
-
-    if result.is_err() {
-        // write (block_number, "failed") to times.csv
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("times.csv")
-            .unwrap()
-            .write_all(format!("{}, failed\n", block_number).as_bytes())
-            .unwrap();
-    }
-    result.map_err(|e| eyre::eyre!("Failed to wait for task: {}", e))?;
-
-    let mut debug_log_file =
-        std::fs::OpenOptions::new().create(true).append(true).open(DEBUG_LOG_FILE.clone()).unwrap();
-    debug_log_file
-        .write_all(
-            format!("{}, {}, {}, {}\n", block_number, proof_id, total_cycles, max_cycles)
-                .as_bytes(),
-        )
-        .unwrap();
-
-    let elapsed = now.elapsed();
-
-    if simulate {
-        let result: String = artifact_client
-            .download_with_type(&output_artifact, ArtifactType::Proof)
-            .await
-            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
-
-        let mut debug_log_file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(DEBUG_LOG_FILE.clone())
-            .unwrap();
-        debug_log_file
-            .write_all(
-                format!(
-                    "{}, {}, {}, {}, {}\n",
-                    block_number, proof_id, result, total_cycles, max_cycles
-                )
-                .as_bytes(),
-            )
-            .unwrap();
-        Ok(None)
-    } else {
-        let result: SP1ProofWithPublicValues = artifact_client
-            .download_with_type(&output_artifact, ArtifactType::Proof)
-            .await
-            .map_err(|e| eyre::eyre!("Failed to download output: {}", e))?;
-        client.verify(&result, &agg_pk.vk)?;
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("times.csv")
-            .unwrap()
-            .write_all(format!("{}, {}\n", block_number, elapsed.as_secs_f32()).as_bytes())
-            .unwrap();
-        Ok(Some(result))
-    }
+    Ok(())
 }
 
 /// Constructs the aggregation stdin, sans the subblock proofs.

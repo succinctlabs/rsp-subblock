@@ -1,5 +1,4 @@
 use alloy_provider::ReqwestProvider;
-use api2::conn::ClusterClientV2;
 use clap::Parser;
 use eth_proofs::EthProofsClient;
 use rsp_client_executor::{
@@ -8,13 +7,12 @@ use rsp_client_executor::{
 };
 use rsp_host_executor::HostExecutor;
 use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
-use sp1_worker::artifact::ArtifactType;
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 mod cli;
-use cli::{schedule_controller, upload_artifact, ProviderArgs};
+use cli::ProviderArgs;
 
 mod execute;
 
@@ -182,35 +180,6 @@ async fn main() -> eyre::Result<()> {
         // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
 
         let addr = std::env::var("CLUSTER_V2_RPC").unwrap_or("http://[::1]:50051".to_string());
-        let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "s3")] {
-                let artifact_client = sp1_worker::artifact::S3ArtifactClient::new(
-                    std::env::var("S3_REGION").unwrap_or("us-east-2".to_string()),
-                    std::env::var("S3_BUCKET").unwrap(),
-                    std::env::var("S3_CONCURRENCY")
-                        .map(|s| s.parse().unwrap_or(32))
-                        .unwrap_or(32),
-                )
-                .await;
-            } else {
-                let artifact_client = RedisArtifactClient::new(
-                    std::env::var("REDIS_NODES")
-                        .expect("REDIS_NODES is not set")
-                .split(',')
-                .map(|s| s.to_string())
-                .collect(),
-                    std::env::var("REDIS_POOL_MAX_SIZE")
-                        .unwrap_or("16".to_string())
-                        .parse()
-                        .unwrap(),
-                );
-            }
-        }
-
-        let elf_artifact =
-            upload_artifact(&artifact_client, "subblock_elf", &pk.elf, ArtifactType::Program)
-                .await?;
 
         #[cfg(debug_assertions)]
         {
@@ -222,18 +191,18 @@ async fn main() -> eyre::Result<()> {
         }
 
         // Generate the subblock proof.
-        let proof = schedule_controller(
-            elf_artifact.clone(),
-            stdin,
-            &mut cluster_client,
-            &artifact_client,
-            false,
-        )
-        .await?;
-        client.verify(&proof, &vk).unwrap();
-        let elapsed = start.elapsed().as_secs_f32();
+        // let proof = schedule_controller(
+        //     elf_artifact.clone(),
+        //     stdin,
+        //     &mut cluster_client,
+        //     &artifact_client,
+        //     false,
+        // )
+        // .await?;
+        // client.verify(&proof, &vk).unwrap();
+        // let elapsed = start.elapsed().as_secs_f32();
 
-        println!("elapsed: {}", elapsed);
+        // println!("elapsed: {}", elapsed);
 
         // if let Some(eth_proofs_client) = &eth_proofs_client {
         //     eth_proofs_client
