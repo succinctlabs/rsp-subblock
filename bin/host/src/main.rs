@@ -194,7 +194,7 @@ async fn main() -> eyre::Result<()> {
                 )
                 .await;
             } else {
-                let artifact_client = RedisArtifactClient::new(
+                let artifact_client = sp1_worker::redis::RedisArtifactClient::new(
                     std::env::var("REDIS_NODES")
                         .expect("REDIS_NODES is not set")
                 .split(',')
