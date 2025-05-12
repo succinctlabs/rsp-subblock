@@ -1,10 +1,7 @@
 use itertools::Itertools;
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
-use rkyv::{
-    de,
-    with::{Identity, MapKV},
-};
+use rkyv::with::{Identity, MapKV};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

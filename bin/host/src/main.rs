@@ -32,6 +32,10 @@ struct HostArgs {
     /// Whether to generate a proof or just execute the block.
     #[clap(long)]
     prove: bool,
+
+    /// Where to dump the elf and stdin.
+    #[clap(long)]
+    dump_dir: Option<PathBuf>,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
@@ -134,7 +138,7 @@ async fn main() -> eyre::Result<()> {
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (pk, vk) = client
+    let (pk, _vk) = client
         .setup(match variant {
             ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
             _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
@@ -144,7 +148,6 @@ async fn main() -> eyre::Result<()> {
     // Execute the block inside the zkVM.
     let mut stdin = SP1Stdin::new();
     let buffer = bincode::serialize(&client_input).unwrap();
-    println!("buffer len: {}", buffer.len());
     stdin.write_vec(buffer);
 
     // let (pk, vk) = client.setup(FIB_ELF).await;
@@ -175,17 +178,13 @@ async fn main() -> eyre::Result<()> {
             eth_proofs_client.proving(args.block_number).await?;
         }
 
-        let start = std::time::Instant::now();
         // let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
         // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
 
-        let addr = std::env::var("CLUSTER_V2_RPC").unwrap_or("http://[::1]:50051".to_string());
-
-        #[cfg(debug_assertions)]
-        {
-            let dump_dir = PathBuf::from(std::env::var("DUMP_DIR").unwrap_or("./dump".to_string()));
-            let elf_path = dump_dir.join("elf_debug.bin");
-            let stdin_path = dump_dir.join("stdin_debug.bin");
+        if let Some(dump_dir) = args.dump_dir {
+            let dump_dir = dump_dir.join(format!("{}", args.block_number));
+            let elf_path = dump_dir.join("basic_elf.bin");
+            let stdin_path = dump_dir.join("basic_stdin.bin");
             std::fs::write(elf_path, pk.elf.as_ref())?;
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }

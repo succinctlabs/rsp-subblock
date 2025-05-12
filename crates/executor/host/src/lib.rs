@@ -3,7 +3,6 @@ pub use error::Error as HostError;
 use reth_trie::AccountProof;
 use std::{
     collections::{BTreeSet, HashMap},
-    future::IntoFuture,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
