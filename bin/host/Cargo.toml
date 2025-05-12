@@ -49,7 +49,8 @@ api2 = { git = "https://github.com/succinctlabs/sp1-prover-service.git", branch 
 # api2 = { path = "../../../sp1-prover-service/cluster/api2", features = ["redis"] }
 
 [build-dependencies]
-sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
+# sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
+sp1-build = { path = "../../../sp1-wip/crates/build" }
 
 [[bin]]
 name = "subblock"
