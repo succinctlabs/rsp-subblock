@@ -45,7 +45,7 @@ sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "mul
 
 [[bin]]
 name = "subblock"
-path = "src/subblock-streaming.rs"
+path = "src/subblock.rs"
 
 [features]
 default = []
