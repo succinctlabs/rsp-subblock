@@ -376,7 +376,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
         let mut state_diffs = Vec::new();
 
-        while current_block.body.len() as u64 > num_transactions_completed {
+        loop {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
             let mut subblock_input = executor_block_input.clone();
@@ -471,6 +471,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             rpc_db.advance_subblock();
 
             subblock_inputs.push(subblock_input);
+
+            if num_transactions_completed >= current_block.body.len() as u64 {
+                break;
+            }
         }
 
         // Commented this out for now, since gas used won't line up.
