@@ -1,17 +1,15 @@
 use itertools::Itertools;
 use reth_trie::{AccountProof, HashedPostState, TrieAccount};
 use revm::primitives::{Address, HashMap, B256};
-use rkyv::{
-    de,
-    with::{Identity, MapKV},
-};
+use rkyv::with::{Identity, MapKV};
+use rsp_primitives::rkyv::B256Def;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Module containing MPT code adapted from `zeth`.
 mod mpt;
 pub use mpt::Error;
-use mpt::{proofs_to_tries, transition_proofs_to_tries, B256Def, MptNode, MptNodeReference};
+use mpt::{proofs_to_tries, transition_proofs_to_tries, MptNode, MptNodeReference};
 
 /// Ethereum state trie and account storage tries.
 #[derive(

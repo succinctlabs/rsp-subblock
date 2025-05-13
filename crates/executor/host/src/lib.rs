@@ -3,7 +3,6 @@ pub use error::Error as HostError;
 use reth_trie::AccountProof;
 use std::{
     collections::{BTreeSet, HashMap},
-    future::IntoFuture,
     marker::PhantomData,
     sync::Arc,
     time::Duration,
@@ -439,6 +438,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 logs_bloom,
                 output_state_root: B256::default(),
                 input_state_root: B256::default(),
+                requests: vec![],
             };
             subblock_outputs.push(subblock_output);
 
@@ -476,17 +476,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 break;
             }
         }
-
-        // Commented this out for now, since gas used won't line up.
-        // need to check this at the end.
-        // Validate the block post execution.
-        // tracing::info!("validating the block post execution");
-        // V::validate_block_post_execution(
-        //     &subblock_input,
-        //     &spec,
-        //     &subblock_output.receipts,
-        //     &subblock_output.requests,
-        // )?;
 
         // Build parent state from modified keys and used keys from this subblock
         let mut before_storage_proofs = Vec::new();

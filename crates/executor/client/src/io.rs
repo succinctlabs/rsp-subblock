@@ -4,9 +4,10 @@ use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, B256, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, Request, B256,
+    U256,
 };
-use reth_trie::{HashedPostState, TrieAccount, EMPTY_ROOT_HASH};
+use reth_trie::{TrieAccount, EMPTY_ROOT_HASH};
 use revm::{db::WrapDatabaseRef, DatabaseRef};
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
@@ -98,7 +99,7 @@ impl SubblockHostOutput {
             let debug_execution_output =
                 EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
             let receipts = debug_execution_output.receipts.clone();
-            // let requests = debug_execution_output.requests.clone();
+            let requests = debug_execution_output.requests.clone();
             let outcome = ExecutionOutcome::new(
                 debug_execution_output.state,
                 Receipts::from(debug_execution_output.receipts),
@@ -117,7 +118,7 @@ impl SubblockHostOutput {
                 logs_bloom,
                 output_state_root: subblock_parent_state.state_root(),
                 input_state_root: old_state_root,
-                // requests
+                requests,
             };
 
             if debug_subblock_output != subblock_output {
@@ -139,29 +140,15 @@ impl SubblockHostOutput {
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
 ///
-/// TODO: put the bincoded public values
-///
 /// Instead of passing in the entire state, we only pass in the state roots along with merkle proofs
 /// for the storage slots that were modified and accessed.
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    /* rkyv::Archive,
-     * rkyv::Serialize,
-     * rkyv::Deserialize, */
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AggregationInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
     /// The previous block headers starting from the most recent. There must be at least one header
     /// to provide the parent state root.
     pub ancestor_headers: Vec<Header>,
-    // /// Network state as of the parent block, serialized with rkyv.
-    // pub parent_state_bytes: Vec<u8>,
     /// Account bytecodes.
     pub bytecodes: Vec<Bytecode>,
 }
@@ -170,12 +157,6 @@ impl AggregationInput {
     pub fn parent_header(&self) -> &Header {
         &self.ancestor_headers[0]
     }
-
-    // pub fn deserialize_state(&self) -> EthereumState {
-    //     let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-    //     aligned_vec.extend_from_slice(&self.parent_state_bytes);
-    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
-    // }
 }
 
 impl ClientExecutorInput {
@@ -218,18 +199,7 @@ impl WitnessInput for ClientExecutorInput {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Default,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-    Eq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SubblockOutput {
     /// The new state root after executing this subblock.
     pub output_state_root: B256,
@@ -239,8 +209,8 @@ pub struct SubblockOutput {
     pub receipts: Vec<Receipt>,
     /// The state root before executing this subblock.
     pub input_state_root: B256,
-    // // This is only needed for pectra.
-    // pub requests: Vec<Request>,
+    // This is only needed for pectra.
+    pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {
@@ -263,7 +233,7 @@ impl SubblockOutput {
         });
         self.receipts.extend(receipts);
 
-        // self.requests.extend(other.requests);
+        self.requests.extend(other.requests);
     }
 }
 
@@ -274,20 +244,6 @@ pub struct TrieDB<'a> {
     inner: &'a EthereumState,
     block_hashes: HashMap<u64, B256>,
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BufferedTrieDB<'a> {
-    /// The underlying TrieDB.
-    pub inner: TrieDB<'a>,
-    /// The cached HashedPostState.
-    pub state_diff: &'a HashedPostState,
-}
-
-impl<'a> BufferedTrieDB<'a> {
-    pub fn new(inner: TrieDB<'a>, state_diff: &'a HashedPostState) -> Self {
-        Self { inner, state_diff }
-    }
 }
 
 impl<'a> TrieDB<'a> {
@@ -333,7 +289,7 @@ impl<'a> TrieDB<'a> {
     }
 }
 
-impl<'a> DatabaseRef for TrieDB<'a> {
+impl DatabaseRef for TrieDB<'_> {
     /// The database error type.
     type Error = ProviderError;
 
@@ -363,48 +319,6 @@ impl<'a> DatabaseRef for TrieDB<'a> {
             .block_hashes
             .get(&number)
             .expect("A block hash must be provided for each block number"))
-    }
-}
-
-impl<'a> DatabaseRef for BufferedTrieDB<'a> {
-    /// The database error type.
-    type Error = ProviderError;
-
-    /// Get basic account information.
-    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let hashed_address = keccak256(address);
-
-        match self.state_diff.accounts.get(&hashed_address) {
-            Some(account) => Ok(account.map(Into::into)),
-            None => self.inner.get_account_from_hashed_address(hashed_address.as_slice()),
-        }
-    }
-
-    /// Get account code by its hash.
-    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
-        Ok(self.inner.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
-    }
-
-    /// Get storage value of address at index.
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let hashed_address = keccak256(address);
-        match self.state_diff.storages.get(&hashed_address) {
-            Some(storage) => {
-                let hashed_index = keccak256(index.to_be_bytes::<32>());
-                match storage.storage.get(&hashed_index) {
-                    Some(value) => Ok(*value),
-                    None => {
-                        self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index)
-                    }
-                }
-            }
-            None => self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index),
-        }
-    }
-
-    /// Get block hash by block number.
-    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        self.inner.block_hash_ref(number)
     }
 }
 
@@ -443,7 +357,8 @@ pub trait WitnessInput {
         if self.state_anchor() != state.state_root() {
             return Err(ClientError::MismatchedStateRoot);
         }
-        
+
+        // Verify the storage tries.
         for (hashed_address, storage_trie) in state.storage_tries.iter() {
             let account =
                 state.state_trie.get_rlp::<TrieAccount>(hashed_address.as_slice()).unwrap();
