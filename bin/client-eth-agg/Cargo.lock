@@ -108,7 +108,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "c-kzg",
- "derive_more",
+ "derive_more 1.0.0",
  "once_cell",
  "serde",
  "sha2",
@@ -151,14 +151,15 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.8.20"
-source = "git+https://github.com/yuwen01/alloy-core?branch=yuwen%2Frkyv20#599b94275c3beb5ddaa2af8041032334d4698b9c"
+version = "0.8.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c77490fe91a0ce933a1f219029521f20fc28c2c0ca95d53fa4da9c00b8d9d4e"
 dependencies = [
  "alloy-rlp",
  "bytes",
  "cfg-if",
  "const-hex",
- "derive_more",
+ "derive_more 2.0.1",
  "foldhash",
  "getrandom 0.2.15",
  "hashbrown 0.15.2",
@@ -168,8 +169,7 @@ dependencies = [
  "keccak-asm",
  "paste",
  "proptest",
- "rand",
- "rkyv",
+ "rand 0.8.5",
  "ruint",
  "rustc-hash",
  "serde",
@@ -224,7 +224,7 @@ dependencies = [
  "alloy-serde",
  "alloy-sol-types",
  "cfg-if",
- "derive_more",
+ "derive_more 1.0.0",
  "hashbrown 0.14.5",
  "itertools 0.13.0",
  "serde",
@@ -320,7 +320,7 @@ checksum = "0a46c9c4fdccda7982e7928904bd85fe235a0404ee3d7e197fff13d61eac8b4f"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
- "derive_more",
+ "derive_more 1.0.0",
  "hashbrown 0.14.5",
  "nybbles",
  "serde",
@@ -454,7 +454,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1df2c09229cbc5a028b1d70e00fdb2acee28b1055dfb5ca73eea49c5a25c4e7c"
 dependencies = [
  "num-traits",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -464,7 +464,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94893f1e0c6eeab764ade8dc4c0db24caf4fe7cbbaafc0eba0a9030f447b5185"
 dependencies = [
  "num-traits",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -835,7 +835,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
 dependencies = [
  "generic-array",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
  "zeroize",
 ]
@@ -922,7 +922,16 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
 dependencies = [
- "derive_more-impl",
+ "derive_more-impl 1.0.0",
+]
+
+[[package]]
+name = "derive_more"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+dependencies = [
+ "derive_more-impl 2.0.1",
 ]
 
 [[package]]
@@ -932,6 +941,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
 dependencies = [
  "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+ "unicode-xid",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
+dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -1018,7 +1039,7 @@ dependencies = [
  "group",
  "hkdf",
  "pkcs8",
- "rand_core",
+ "rand_core 0.6.4",
  "sec1",
  "subtle",
  "zeroize",
@@ -1035,7 +1056,7 @@ dependencies = [
  "bytes",
  "hex",
  "log",
- "rand",
+ "rand 0.8.5",
  "sha3",
  "zeroize",
 ]
@@ -1103,7 +1124,7 @@ checksum = "ded41244b729663b1e574f1b4fb731469f69f79c17667b5d776b16cda0479449"
 dependencies = [
  "byteorder",
  "ff_derive",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -1130,7 +1151,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
 dependencies = [
  "byteorder",
- "rand",
+ "rand 0.8.5",
  "rustc-hex",
  "static_assertions",
 ]
@@ -1310,7 +1331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
 dependencies = [
  "ff",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -1949,7 +1970,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "alloy-serde",
- "derive_more",
+ "derive_more 1.0.0",
  "serde",
  "spin",
 ]
@@ -1994,7 +2015,7 @@ dependencies = [
  "p3-mds 0.1.0",
  "p3-poseidon2 0.1.0",
  "p3-symmetric 0.1.0",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2009,7 +2030,7 @@ dependencies = [
  "p3-mds 0.2.2-succinct",
  "p3-poseidon2 0.2.2-succinct",
  "p3-symmetric 0.2.2-succinct",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2047,7 +2068,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "p3-util 0.1.0",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2061,7 +2082,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "p3-util 0.2.2-succinct",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2074,7 +2095,7 @@ dependencies = [
  "p3-field 0.1.0",
  "p3-maybe-rayon 0.1.0",
  "p3-util 0.1.0",
- "rand",
+ "rand 0.8.5",
  "serde",
  "tracing",
 ]
@@ -2089,7 +2110,7 @@ dependencies = [
  "p3-field 0.2.2-succinct",
  "p3-maybe-rayon 0.2.2-succinct",
  "p3-util 0.2.2-succinct",
- "rand",
+ "rand 0.8.5",
  "serde",
  "tracing",
 ]
@@ -2116,7 +2137,7 @@ dependencies = [
  "p3-matrix 0.1.0",
  "p3-symmetric 0.1.0",
  "p3-util 0.1.0",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -2131,7 +2152,7 @@ dependencies = [
  "p3-matrix 0.2.2-succinct",
  "p3-symmetric 0.2.2-succinct",
  "p3-util 0.2.2-succinct",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -2143,7 +2164,7 @@ dependencies = [
  "p3-field 0.1.0",
  "p3-mds 0.1.0",
  "p3-symmetric 0.1.0",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2157,7 +2178,7 @@ dependencies = [
  "p3-field 0.2.2-succinct",
  "p3-mds 0.2.2-succinct",
  "p3-symmetric 0.2.2-succinct",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -2367,8 +2388,8 @@ dependencies = [
  "bitflags",
  "lazy_static",
  "num-traits",
- "rand",
- "rand_chacha",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "rand_xorshift",
  "regex-syntax",
  "rusty-fork",
@@ -2433,9 +2454,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
- "rand_chacha",
- "rand_core",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
  "serde",
+]
+
+[[package]]
+name = "rand"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
+dependencies = [
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.3",
 ]
 
 [[package]]
@@ -2445,7 +2476,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.9.3",
 ]
 
 [[package]]
@@ -2458,12 +2499,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_core"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
+dependencies = [
+ "getrandom 0.3.1",
+]
+
+[[package]]
 name = "rand_xorshift"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d25bf25ec5ae4a3f1b92f929810509a2f53d7dca2f50b794ff57e3face536c8f"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -2504,7 +2554,7 @@ dependencies = [
 [[package]]
 name = "reth-blockchain-tree-api"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-consensus",
  "reth-execution-errors",
@@ -2516,7 +2566,7 @@ dependencies = [
 [[package]]
 name = "reth-chainspec"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-chains",
  "alloy-eips",
@@ -2524,7 +2574,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-trie",
  "auto_impl",
- "derive_more",
+ "derive_more 1.0.0",
  "once_cell",
  "op-alloy-rpc-types",
  "reth-ethereum-forks",
@@ -2538,7 +2588,7 @@ dependencies = [
 [[package]]
 name = "reth-codecs"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2554,7 +2604,7 @@ dependencies = [
 [[package]]
 name = "reth-codecs-derive"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -2565,17 +2615,17 @@ dependencies = [
 [[package]]
 name = "reth-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "auto_impl",
- "derive_more",
+ "derive_more 1.0.0",
  "reth-primitives",
 ]
 
 [[package]]
 name = "reth-consensus-common"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -2585,7 +2635,7 @@ dependencies = [
 [[package]]
 name = "reth-db-models"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "bytes",
  "modular-bitfield",
@@ -2597,7 +2647,7 @@ dependencies = [
 [[package]]
 name = "reth-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-blockchain-tree-api",
  "reth-consensus",
@@ -2610,7 +2660,7 @@ dependencies = [
 [[package]]
 name = "reth-ethereum-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -2622,7 +2672,7 @@ dependencies = [
 [[package]]
 name = "reth-ethereum-forks"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
@@ -2639,7 +2689,7 @@ dependencies = [
 [[package]]
 name = "reth-evm"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-eips",
  "auto_impl",
@@ -2657,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "reth-evm-ethereum"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-eips",
  "alloy-sol-types",
@@ -2670,12 +2720,13 @@ dependencies = [
  "reth-prune-types",
  "reth-revm",
  "revm-primitives",
+ "tracing",
 ]
 
 [[package]]
 name = "reth-evm-optimism"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-ethereum-forks",
@@ -2695,12 +2746,12 @@ dependencies = [
 [[package]]
 name = "reth-execution-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
- "derive_more",
+ "derive_more 1.0.0",
  "nybbles",
  "reth-consensus",
  "reth-prune-types",
@@ -2711,7 +2762,7 @@ dependencies = [
 [[package]]
 name = "reth-execution-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-execution-errors",
@@ -2723,7 +2774,7 @@ dependencies = [
 [[package]]
 name = "reth-fs-util"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "serde",
  "serde_json",
@@ -2733,7 +2784,7 @@ dependencies = [
 [[package]]
 name = "reth-network-peers"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -2746,11 +2797,11 @@ dependencies = [
 [[package]]
 name = "reth-optimism-chainspec"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-chains",
  "alloy-primitives",
- "derive_more",
+ "derive_more 1.0.0",
  "once_cell",
  "reth-chainspec",
  "reth-ethereum-forks",
@@ -2761,7 +2812,7 @@ dependencies = [
 [[package]]
 name = "reth-optimism-consensus"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-consensus",
@@ -2773,7 +2824,7 @@ dependencies = [
 [[package]]
 name = "reth-primitives"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2783,7 +2834,7 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-serde",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "k256",
  "once_cell",
  "op-alloy-rpc-types",
@@ -2803,7 +2854,7 @@ dependencies = [
 [[package]]
 name = "reth-primitives-traits"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -2813,7 +2864,7 @@ dependencies = [
  "alloy-rpc-types-eth",
  "byteorder",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "modular-bitfield",
  "reth-codecs",
  "revm-primitives",
@@ -2825,11 +2876,11 @@ dependencies = [
 [[package]]
 name = "reth-prune-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-primitives",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "modular-bitfield",
  "reth-codecs",
  "serde",
@@ -2839,7 +2890,7 @@ dependencies = [
 [[package]]
 name = "reth-revm"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "reth-chainspec",
  "reth-consensus-common",
@@ -2854,7 +2905,7 @@ dependencies = [
 [[package]]
 name = "reth-stages-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-primitives",
  "bytes",
@@ -2867,10 +2918,10 @@ dependencies = [
 [[package]]
 name = "reth-static-file-types"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-primitives",
- "derive_more",
+ "derive_more 1.0.0",
  "serde",
  "strum",
 ]
@@ -2878,7 +2929,7 @@ dependencies = [
 [[package]]
 name = "reth-storage-api"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "auto_impl",
  "reth-chainspec",
@@ -2894,10 +2945,10 @@ dependencies = [
 [[package]]
 name = "reth-storage-errors"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-rlp",
- "derive_more",
+ "derive_more 1.0.0",
  "reth-fs-util",
  "reth-primitives",
 ]
@@ -2905,12 +2956,12 @@ dependencies = [
 [[package]]
 name = "reth-trie"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "auto_impl",
- "derive_more",
+ "derive_more 1.0.0",
  "itertools 0.13.0",
  "rayon",
  "reth-execution-errors",
@@ -2927,7 +2978,7 @@ dependencies = [
 [[package]]
 name = "reth-trie-common"
 version = "1.0.6"
-source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fsubblock#ea6b8bdd4037ee6fe0452ac1b11f8c57e9d6799a"
+source = "git+https://github.com/yuwen01/reth-private?branch=yuwen%2Fcleanup#ab5950ea3ba87c19d0d7e5a60effd604d86219b3"
 dependencies = [
  "alloy-consensus",
  "alloy-genesis",
@@ -2935,7 +2986,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-trie",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "itertools 0.13.0",
  "nybbles",
  "reth-codecs",
@@ -3163,6 +3214,7 @@ dependencies = [
  "revm-interpreter",
  "revm-precompile",
  "revm-primitives",
+ "rkyv",
  "serde",
  "serde_json",
  "tracing",
@@ -3181,8 +3233,9 @@ dependencies = [
 
 [[package]]
 name = "ruint"
-version = "1.12.4"
-source = "git+https://github.com/yuwen01/uint?branch=yuwen%2Frkyv#bf5aafc9a13d78158fa4cba131486022a1e922bf"
+version = "1.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78a46eb779843b2c4f21fac5773e25d6d5b7c8f0922876c91541790d2ca27eef"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
@@ -3190,15 +3243,14 @@ dependencies = [
  "bytes",
  "fastrlp 0.3.1",
  "fastrlp 0.4.0",
- "hex",
  "num-bigint 0.4.6",
  "num-integer",
  "num-traits",
  "parity-scale-codec",
  "primitive-types",
  "proptest",
- "rand",
- "rkyv",
+ "rand 0.8.5",
+ "rand 0.9.1",
  "rlp",
  "ruint-macro",
  "serde",
@@ -3209,7 +3261,8 @@ dependencies = [
 [[package]]
 name = "ruint-macro"
 version = "1.2.1"
-source = "git+https://github.com/yuwen01/uint?branch=yuwen%2Frkyv#bf5aafc9a13d78158fa4cba131486022a1e922bf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
 
 [[package]]
 name = "rustc-demangle"
@@ -3223,7 +3276,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
 dependencies = [
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -3313,7 +3366,7 @@ version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9465315bc9d4566e1724f0fffcbcc446268cb522e60f9a27bcded6b19c108113"
 dependencies = [
- "rand",
+ "rand 0.8.5",
  "secp256k1-sys",
 ]
 
@@ -3455,7 +3508,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest 0.10.7",
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -3551,7 +3604,7 @@ dependencies = [
  "libm",
  "p3-baby-bear 0.1.0",
  "p3-field 0.1.0",
- "rand",
+ "rand 0.8.5",
  "sha2",
  "sp1-lib 4.0.1",
  "sp1-primitives 4.0.1",
@@ -3567,7 +3620,7 @@ dependencies = [
  "ff",
  "group",
  "pairing",
- "rand_core",
+ "rand_core 0.6.4",
  "sp1-lib 4.1.7",
  "subtle",
 ]
@@ -3642,7 +3695,7 @@ dependencies = [
  "crunchy",
  "lazy_static",
  "num-bigint 0.4.6",
- "rand",
+ "rand 0.8.5",
  "rustc-hex",
  "sp1-lib 4.1.7",
 ]

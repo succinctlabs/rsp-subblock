@@ -244,7 +244,7 @@ impl ClientExecutor {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
         })?;
 
-        // let requests = executor_output.requests.clone();
+        let requests = executor_output.requests.clone();
         let receipts = executor_output.receipts.clone();
 
         let mut logs_bloom = Bloom::default();
@@ -269,13 +269,7 @@ impl ClientExecutor {
             input_state.update(&hash_state);
             let output_state_root = input_state.state_root();
 
-            SubblockOutput {
-                output_state_root,
-                logs_bloom,
-                receipts,
-                input_state_root,
-                // requests,
-            }
+            SubblockOutput { output_state_root, logs_bloom, receipts, input_state_root, requests }
         });
 
         Ok(subblock_output)
@@ -308,10 +302,8 @@ impl ClientExecutor {
                 println!("cycle-tracker-end: deserialize subblock transactions");
                 println!("cycle-tracker-start: deserialize subblock output");
 
-                let mut aligned_vec = AlignedVec::<16>::with_capacity(public_value.len());
-                aligned_vec.extend_from_reader(&mut reader).unwrap();
                 let subblock_output: SubblockOutput =
-                    rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
+                    bincode::deserialize_from(&mut reader).unwrap();
                 println!("cycle-tracker-end: deserialize subblock output");
 
                 println!("cycle-tracker-start: extend state");
@@ -337,8 +329,7 @@ impl ClientExecutor {
                 &aggregation_input.current_block.header,
                 &V::spec(),
                 &cumulative_state_diff.receipts,
-                // &aggregated_output.requests,
-                &Vec::new(),
+                &cumulative_state_diff.requests,
             )
             .expect("failed to validate subblock aggregation")
         });

@@ -30,6 +30,7 @@ use core::{
 };
 use reth_trie::AccountProof;
 use revm::primitives::HashMap;
+use rsp_primitives::rkyv::B256Def;
 use std::collections::HashSet;
 
 use rlp::{Decodable, DecoderError, Prototype, Rlp};
@@ -200,45 +201,15 @@ pub enum MptNodeData {
     #[default]
     Null,
     /// A node that can have up to 16 children. Each child is an optional boxed [MptNode].
-    Branch(
-        // #[rkyv(with = rkyv::with::Map<rkyv::with::Map<Box<ArchivedMptNode>>>)]
-        #[rkyv(omit_bounds)] [Option<Box<MptNode>>; 16],
-    ),
+    Branch(#[rkyv(omit_bounds)] [Option<Box<MptNode>>; 16]),
     /// A leaf node that contains a key and a value, both represented as byte vectors.
     Leaf(Vec<u8>, Vec<u8>),
     /// A node that has exactly one child and is used to represent a shared prefix of
     /// several keys.
-    Extension(
-        Vec<u8>,
-        // #[rkyv(with = Box<ArchivedMptNode>)]
-        #[rkyv(omit_bounds)] Box<MptNode>,
-    ),
+    Extension(Vec<u8>, #[rkyv(omit_bounds)] Box<MptNode>),
     /// Represents a sub-trie by its hash, allowing for efficient storage of large
     /// sub-tries without storing their entire content.
     Digest(#[rkyv(with = B256Def)] B256),
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-#[rkyv(remote = B256)]
-#[rkyv(archived = ArchivedB256)]
-#[rkyv(attr(derive(Eq, PartialEq, Hash)))]
-pub struct B256Def(pub [u8; 32]);
-
-impl From<B256Def> for B256 {
-    fn from(value: B256Def) -> Self {
-        B256::new(value.0)
-    }
 }
 
 /// Represents the ways in which one node can reference another node inside the sparse
@@ -863,8 +834,8 @@ impl MptNode {
             return;
         }
 
-        if !touched_refs.contains(&self.reference()) &&
-            !matches!(self.data, MptNodeData::Leaf(_, _))
+        if !touched_refs.contains(&self.reference())
+            && !matches!(self.data, MptNodeData::Leaf(_, _))
         {
             self.data = MptNodeData::Digest(self.hash());
             return;

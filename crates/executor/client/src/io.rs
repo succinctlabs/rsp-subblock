@@ -4,9 +4,10 @@ use itertools::Itertools;
 use reth_errors::ProviderError;
 use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, B256, U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, Request, B256,
+    U256,
 };
-use reth_trie::{HashedPostState, TrieAccount, EMPTY_ROOT_HASH};
+use reth_trie::{TrieAccount, EMPTY_ROOT_HASH};
 use revm::{db::WrapDatabaseRef, DatabaseRef};
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
@@ -98,7 +99,7 @@ impl SubblockHostOutput {
             let debug_execution_output =
                 EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
             let receipts = debug_execution_output.receipts.clone();
-            // let requests = debug_execution_output.requests.clone();
+            let requests = debug_execution_output.requests.clone();
             let outcome = ExecutionOutcome::new(
                 debug_execution_output.state,
                 Receipts::from(debug_execution_output.receipts),
@@ -117,7 +118,7 @@ impl SubblockHostOutput {
                 logs_bloom,
                 output_state_root: subblock_parent_state.state_root(),
                 input_state_root: old_state_root,
-                // requests
+                requests,
             };
 
             if debug_subblock_output != subblock_output {
@@ -139,29 +140,15 @@ impl SubblockHostOutput {
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
 ///
-/// TODO: put the bincoded public values
-///
 /// Instead of passing in the entire state, we only pass in the state roots along with merkle proofs
 /// for the storage slots that were modified and accessed.
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    /* rkyv::Archive,
-     * rkyv::Serialize,
-     * rkyv::Deserialize, */
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AggregationInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
     /// The previous block headers starting from the most recent. There must be at least one header
     /// to provide the parent state root.
     pub ancestor_headers: Vec<Header>,
-    // /// Network state as of the parent block, serialized with rkyv.
-    // pub parent_state_bytes: Vec<u8>,
     /// Account bytecodes.
     pub bytecodes: Vec<Bytecode>,
 }
@@ -170,12 +157,6 @@ impl AggregationInput {
     pub fn parent_header(&self) -> &Header {
         &self.ancestor_headers[0]
     }
-
-    // pub fn deserialize_state(&self) -> EthereumState {
-    //     let mut aligned_vec = AlignedVec::<16>::with_capacity(self.parent_state_bytes.len());
-    //     aligned_vec.extend_from_slice(&self.parent_state_bytes);
-    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(&aligned_vec).unwrap()
-    // }
 }
 
 impl ClientExecutorInput {
@@ -218,18 +199,7 @@ impl WitnessInput for ClientExecutorInput {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Default,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-    PartialEq,
-    Eq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SubblockOutput {
     /// The new state root after executing this subblock.
     pub output_state_root: B256,
@@ -239,8 +209,8 @@ pub struct SubblockOutput {
     pub receipts: Vec<Receipt>,
     /// The state root before executing this subblock.
     pub input_state_root: B256,
-    // // This is only needed for pectra.
-    // pub requests: Vec<Request>,
+    // This is only needed for pectra.
+    pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {
@@ -263,7 +233,7 @@ impl SubblockOutput {
         });
         self.receipts.extend(receipts);
 
-        // self.requests.extend(other.requests);
+        self.requests.extend(other.requests);
     }
 }
 
