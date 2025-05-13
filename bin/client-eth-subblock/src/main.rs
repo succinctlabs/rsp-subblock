@@ -37,8 +37,7 @@ pub fn main() {
 
     // Commit the state diff.
     println!("cycle-tracker-start: serialize state diff");
-    let serialized = rkyv::to_bytes::<rkyv::rancor::BoxedError>(&subblock_output)
-        .expect("failed to serialize state diff");
+    let serialized = bincode::serialize(&subblock_output).expect("failed to serialize state diff");
     println!("cycle-tracker-end: serialize state diff");
     println!("cycle-tracker-start: commit");
     sp1_zkvm::io::commit(&transactions);

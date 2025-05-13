@@ -207,10 +207,9 @@ pub fn to_aggregation_stdin(
         let transactions = &subblock_host_output.subblock_inputs[i].current_block.body;
         bincode::serialize_into(&mut current_public_values, transactions).unwrap();
 
-        let serialized =
-            rkyv::to_bytes::<rkyv::rancor::BoxedError>(&subblock_host_output.subblock_outputs[i])
-                .expect("failed to serialize subblock output")
-                .to_vec();
+        let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
+            .expect("failed to serialize subblock output")
+            .to_vec();
 
         current_public_values.write_all(&serialized).unwrap();
 

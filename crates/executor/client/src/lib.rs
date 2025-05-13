@@ -29,7 +29,6 @@ use reth_primitives::{
 };
 use revm::{db::WrapDatabaseRef, Database};
 use revm_primitives::{address, B256, U256};
-use rkyv::util::AlignedVec;
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 
