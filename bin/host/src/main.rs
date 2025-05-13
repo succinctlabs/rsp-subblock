@@ -150,16 +150,10 @@ async fn main() -> eyre::Result<()> {
     let buffer = bincode::serialize(&client_input).unwrap();
     stdin.write_vec(buffer);
 
-    // let (pk, vk) = client.setup(FIB_ELF).await;
-    // let stdin: SP1Stdin = bincode::deserialize(FIB_STDIN).unwrap();
     // Only execute the program.
     let (_public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
     println!("execution_report: {}", execution_report);
-    // // Read the block hash.
-    // let block_hash = public_values.read::<B256>();
-    // println!("success: block_hash={block_hash}");
-
     // if eth_proofs_client.is_none() {
     //     // Process the execute report, print it out, and save data to a CSV specified by
     //     // report_path.
@@ -178,9 +172,6 @@ async fn main() -> eyre::Result<()> {
             eth_proofs_client.proving(args.block_number).await?;
         }
 
-        // let proof = client.prove(&pk, &stdin).compressed().run().expect("Proving should work.");
-        // let proof_bytes = bincode::serialize(&proof.proof).unwrap();
-
         if let Some(dump_dir) = args.dump_dir {
             let dump_dir = dump_dir.join(format!("{}", args.block_number));
             let elf_path = dump_dir.join("basic_elf.bin");
@@ -188,26 +179,6 @@ async fn main() -> eyre::Result<()> {
             std::fs::write(elf_path, pk.elf.as_ref())?;
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
-
-        // Generate the subblock proof.
-        // let proof = schedule_controller(
-        //     elf_artifact.clone(),
-        //     stdin,
-        //     &mut cluster_client,
-        //     &artifact_client,
-        //     false,
-        // )
-        // .await?;
-        // client.verify(&proof, &vk).unwrap();
-        // let elapsed = start.elapsed().as_secs_f32();
-
-        // println!("elapsed: {}", elapsed);
-
-        // if let Some(eth_proofs_client) = &eth_proofs_client {
-        //     eth_proofs_client
-        //         .proved(&proof_bytes, args.block_number, &execution_report, elapsed, &vk)
-        //         .await?;
-        // }
     }
 
     Ok(())
