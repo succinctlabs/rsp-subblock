@@ -20,7 +20,6 @@ tracing.workspace = true
 
 # workspace
 rsp-rpc-db.workspace = true
-rsp-witness-db.workspace = true
 rsp-client-executor.workspace = true
 rsp-mpt = { workspace = true, features = ["preimage_context"] }
 rsp-primitives.workspace = true

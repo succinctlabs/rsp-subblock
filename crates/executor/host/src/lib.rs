@@ -40,7 +40,7 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 lazy_static::lazy_static! {
-    /// Number of transactions per subblock.
+    /// Amount of gas used per subblock.
     pub static ref SUBBLOCK_GAS_LIMIT: u64 = std::env::var("SUBBLOCK_GAS_LIMIT")
         .map(|s| s.parse().unwrap())
         .unwrap_or(1_000_000);
@@ -375,6 +375,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
         let mut state_diffs = Vec::new();
 
+        let mut cumulative_gas_used = 0;
+
         loop {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
@@ -388,11 +390,11 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_input.is_first_subblock = is_first_subblock;
             subblock_input.is_last_subblock = false;
             subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT;
+            let starting_gas_used = cumulative_gas_used;
 
             tracing::info!("num transactions left: {}", subblock_input.body.len());
 
-            // This looks suspiciously normal... it's because I put all the subblock config in the
-            // BlockWithSenders
+            // All of the subblock config is in the BlockWithSenders.
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
 
             let num_executed_transactions = subblock_output.receipts.len();
@@ -417,6 +419,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             rpc_db.update_state_diffs(&subblock_output.state);
 
             let receipts = subblock_output.receipts.clone();
+
+            cumulative_gas_used += receipts.last().unwrap().cumulative_gas_used;
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(
@@ -459,6 +463,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
                 is_last_subblock,
+                starting_gas_used,
             };
 
             // Slice the correct transactions for this subblock
@@ -632,7 +637,10 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_parent_state.prune(&state_diffs[i], &touched_state);
             let new_serialized_size =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
-            println!("compression ratio: {}", serialized_size as f64 / new_serialized_size as f64);
+            tracing::info!(
+                "Pruned state compression ratio: {}",
+                new_serialized_size as f64 / serialized_size as f64
+            );
             let new_root = subblock_parent_state.state_root();
             assert_eq!(prev_root, new_root);
             subblock_parent_states.push(

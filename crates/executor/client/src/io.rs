@@ -47,12 +47,13 @@ pub struct SubblockInput {
     /// This can be shrunk, but it's not a big deal
     pub block_hashes: HashMap<u64, B256>,
     /// The bytecodes used by the subblock
-    /// TODO: shrink this
     pub bytecodes: Vec<Bytecode>,
     /// Whether this is the first subblock (do we need to do pre-execution transactions?)
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
     pub is_last_subblock: bool,
+    /// The starting gas used for the subblock
+    pub starting_gas_used: u64,
 }
 
 /// Everything needed to run the subblock task e2e.
@@ -68,6 +69,8 @@ pub struct SubblockHostOutput {
 }
 
 impl SubblockHostOutput {
+    /// Validates the output of the host executor, by running all of the subblocks natively and
+    /// checking their consistency.
     pub fn validate(&self) -> Result<(), ClientError> {
         let current_block = self.agg_input.current_block.clone();
         let executor_difficulty = current_block.header.difficulty;
@@ -86,8 +89,9 @@ impl SubblockHostOutput {
             input.is_first_subblock = subblock_input.is_first_subblock;
             input.is_last_subblock = subblock_input.is_last_subblock;
 
-            println!("is first subblock: {:?}", input.is_first_subblock);
-            println!("is last subblock: {:?}", input.is_last_subblock);
+            tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
+            tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
+
             let bytecode_by_hash =
                 subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
             let trie_db = TrieDB::new(
@@ -209,13 +213,13 @@ pub struct SubblockOutput {
     pub receipts: Vec<Receipt>,
     /// The state root before executing this subblock.
     pub input_state_root: B256,
-    // This is only needed for pectra.
+    /// EIP 7685 Requests.
     pub requests: Vec<Request>,
 }
 
 impl SubblockOutput {
     /// This is intended to ONLY be called by consecutive subblocks of the same block.
-    /// self is the current cumulative subblock output, and other is the new subblock output.
+    /// `self` is the current cumulative subblock output, and `other` is the new subblock output.
     pub fn extend(&mut self, other: Self) {
         // Get the gas used so far, and add it to all of the new receipts.
         let cumulative_gas_used = match self.receipts.last() {
@@ -227,20 +231,23 @@ impl SubblockOutput {
         assert_eq!(self.output_state_root, other.input_state_root);
         self.output_state_root = other.output_state_root;
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
+
+        // Add the cumulative gas used to the receipts.
         let mut receipts = other.receipts;
         receipts.iter_mut().for_each(|receipt| {
             receipt.cumulative_gas_used += cumulative_gas_used;
         });
+
+        // Add other receipts to the current receipts.
         self.receipts.extend(receipts);
 
+        // Add other requests to the current requests.
         self.requests.extend(other.requests);
     }
 }
 
 #[derive(Debug, Clone)]
-// #[serde(bound(serialize = "", deserialize = ""))]
 pub struct TrieDB<'a> {
-    // #[serde(borrow)]
     inner: &'a EthereumState,
     block_hashes: HashMap<u64, B256>,
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
@@ -322,7 +329,7 @@ impl DatabaseRef for TrieDB<'_> {
     }
 }
 
-/// A trait for constructing [`WitnessDb`].
+/// A trait for constructing [`TrieDB`].
 pub trait WitnessInput {
     /// Gets a reference to the state from which account info and storage slots are loaded.
     fn state(&self) -> &EthereumState;
@@ -410,7 +417,7 @@ pub fn read_aligned_vec<const N: usize>() -> AlignedVec<N> {
             assert!(N % align_of::<u8>() == 0, "SP1 zkVM alignment must be a multiple of 4");
 
             // Round up to the nearest multiple of 4 so that the memory allocated is in whole words
-            let len = unsafe { syscall_hint_len() };
+            let len = syscall_hint_len();
             let capacity = (len + 3) / 4 * 4;
 
             // Allocate a buffer of the required length that is 4 byte aligned

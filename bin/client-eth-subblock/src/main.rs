@@ -25,9 +25,9 @@ pub fn main() {
 
     println!("cycle-tracker-end: deserialize rkyv stuff");
 
-    println!("cycle-tracker-start: clone transactions");
-    let transactions = input.current_block.body.clone();
-    println!("cycle-tracker-end: clone transactions");
+    println!("cycle-tracker-start: clone block");
+    let block = input.current_block.clone();
+    println!("cycle-tracker-end: clone block");
 
     // Execute the block.
     let executor = ClientExecutor;
@@ -40,7 +40,7 @@ pub fn main() {
     let serialized = bincode::serialize(&subblock_output).expect("failed to serialize state diff");
     println!("cycle-tracker-end: serialize state diff");
     println!("cycle-tracker-start: commit");
-    sp1_zkvm::io::commit(&transactions);
+    sp1_zkvm::io::commit(&block);
     sp1_zkvm::io::commit_slice(&serialized);
     println!("cycle-tracker-end: commit");
 }

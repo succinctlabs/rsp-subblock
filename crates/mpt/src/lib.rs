@@ -170,7 +170,6 @@ impl EthereumState {
                     touched_account_refs.extend(touched);
                 }
                 None => {
-                    println!("deleting account");
                     let (_gotten, touched) =
                         self.state_trie.delete_with_touched(hashed_address).unwrap();
                     touched_account_refs.extend(touched);

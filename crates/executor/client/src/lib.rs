@@ -238,6 +238,9 @@ impl ClientExecutor {
         })?;
         executor_block_input.is_first_subblock = input.is_first_subblock;
         executor_block_input.is_last_subblock = input.is_last_subblock;
+        executor_block_input.starting_gas_used = input.starting_gas_used;
+
+        println!("starting gas used: {}", input.starting_gas_used);
         let executor_difficulty = input.current_block.header.difficulty;
         let executor_output = profile!("execute", {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
@@ -281,7 +284,6 @@ impl ClientExecutor {
         mut aggregation_input: AggregationInput,
         parent_state_root: B256,
     ) -> Result<Header, ClientError> {
-        // TODO: pass in the parent state root as plaintext should be fine.
         let mut cumulative_state_diff =
             SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
@@ -293,12 +295,13 @@ impl ClientExecutor {
                         sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
                     }
                 }
-                println!("cycle-tracker-start: deserialize subblock transactions");
+                println!("cycle-tracker-start: deserialize block");
                 let mut reader = Cursor::new(&public_value);
-                let subblock_transactions: Vec<TransactionSigned> =
-                    bincode::deserialize_from(&mut reader).unwrap();
+                let subblock: Block = bincode::deserialize_from(&mut reader).unwrap();
 
-                println!("cycle-tracker-end: deserialize subblock transactions");
+                println!("cycle-tracker-end: deserialize block");
+
+                assert_eq!(subblock.header, aggregation_input.current_block.header);
                 println!("cycle-tracker-start: deserialize subblock output");
 
                 let subblock_output: SubblockOutput =
@@ -306,13 +309,14 @@ impl ClientExecutor {
                 println!("cycle-tracker-end: deserialize subblock output");
 
                 println!("cycle-tracker-start: extend state");
-                // Check that the subblock's input state diff matches the cumulative state diff.
+
+                // Accumulate subblock's output into the cumulative state diff.
                 // This function also contains consistency checks between the cumulative state diff
                 // and the subblock output.
                 cumulative_state_diff.extend(subblock_output);
 
                 // Also add this subblock's transaction body to the transaction body.
-                transaction_body.extend(subblock_transactions);
+                transaction_body.extend(subblock.body);
                 println!("cycle-tracker-end: extend state");
             }
         });

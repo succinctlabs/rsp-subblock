@@ -2078,7 +2078,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "976dd42dc7e85965fe702eb8164f21f450704bdde31faefd6471dba214cb594e"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4363,7 +4363,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5307,13 +5307,13 @@ dependencies = [
  "rkyv",
  "rsp-mpt",
  "rsp-primitives",
- "rsp-witness-db",
  "serde",
  "serde_json",
  "sha2",
  "sp1-zkvm",
  "thiserror 1.0.69",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -5345,7 +5345,6 @@ dependencies = [
  "rsp-mpt",
  "rsp-primitives",
  "rsp-rpc-db",
- "rsp-witness-db",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5418,17 +5417,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "rsp-witness-db"
-version = "0.1.0"
-dependencies = [
- "reth-primitives",
- "reth-storage-errors",
- "revm-primitives",
- "rsp-primitives",
- "serde",
 ]
 
 [[package]]
@@ -5519,7 +5507,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7125,7 +7113,7 @@ dependencies = [
  "getrandom 0.3.2",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

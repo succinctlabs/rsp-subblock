@@ -131,27 +131,13 @@ async fn main() -> eyre::Result<()> {
     let (_public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
     println!("execution_report: {}", execution_report);
-    // if eth_proofs_client.is_none() {
-    //     // Process the execute report, print it out, and save data to a CSV specified by
-    //     // report_path.
-    //     process_execution_report(
-    //         variant,
-    //         client_input,
-    //         &execution_report,
-    //         args.report_path.clone(),
-    //     )?;
-    // }
 
-    if args.prove {
-        println!("Starting proof generation.");
-
-        if let Some(dump_dir) = args.dump_dir {
-            let dump_dir = dump_dir.join(format!("{}", args.block_number));
-            let elf_path = dump_dir.join("basic_elf.bin");
-            let stdin_path = dump_dir.join("basic_stdin.bin");
-            std::fs::write(elf_path, pk.elf.as_ref())?;
-            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
-        }
+    if let Some(dump_dir) = args.dump_dir {
+        let dump_dir = dump_dir.join(format!("{}", args.block_number));
+        let elf_path = dump_dir.join("basic_elf.bin");
+        let stdin_path = dump_dir.join("basic_stdin.bin");
+        std::fs::write(elf_path, pk.elf.as_ref())?;
+        std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
     }
 
     Ok(())
