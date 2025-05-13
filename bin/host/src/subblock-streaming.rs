@@ -19,12 +19,8 @@ use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
-mod execute;
-
 mod cli;
 use cli::ProviderArgs;
-
-mod eth_proofs;
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
@@ -37,6 +33,7 @@ struct HostArgs {
     /// Whether to pre-execute the block.
     #[clap(long)]
     execute: bool,
+    /// Where to dump the elf and stdin for the files.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
     /// Optional path to the directory containing cached client input. A new cache file will be
@@ -51,18 +48,10 @@ struct HostArgs {
     report_path: PathBuf,
 }
 
-lazy_static::lazy_static! {
-    static ref DEBUG_LOG_FILE: PathBuf = PathBuf::from("debug.csv");
-}
-
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     // Intialize the environment variables.
     dotenv::dotenv().ok();
-
-    // if std::env::var("RUST_LOG").is_err() {
-    //     std::env::set_var("RUST_LOG", "info");
-    // }
 
     // Initialize the logger.
     tracing_subscriber::registry().with(fmt::layer()).with(EnvFilter::from_default_env()).init();
@@ -183,18 +172,19 @@ async fn schedule_task(
         if execute {
             let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
             let subblock_instruction_count = report.total_instruction_count();
-            println!("subblock_instruction_count: {}", subblock_instruction_count);
+            tracing::info!("Subblock {} instruction count: {}", i, subblock_instruction_count);
         }
     }
 
     if execute {
+        // Execute the aggregation program with deferred proof verification off, since we don't have the proof yet.
         let (_public_values, report) = client
             .execute(&agg_elf, &aggregation_stdin)
             .deferred_proof_verification(false)
             .run()
             .unwrap();
         let agg_instruction_count = report.total_instruction_count();
-        println!("agg_instruction_count: {}", agg_instruction_count);
+        tracing::info!("Aggregation program instruction count: {}", agg_instruction_count);
     }
 
     Ok(())
@@ -247,7 +237,8 @@ fn try_load_input_from_cache(
     block_number: u64,
 ) -> eyre::Result<Option<SubblockHostOutput>> {
     Ok(if let Some(cache_dir) = cache_dir {
-        let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
+        let cache_path =
+            cache_dir.join(format!("subblock-input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
             // TODO: prune the cache if invalid instead

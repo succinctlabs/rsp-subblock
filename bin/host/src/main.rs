@@ -1,10 +1,6 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
-use eth_proofs::EthProofsClient;
-use rsp_client_executor::{
-    io::ClientExecutorInput, ChainVariant, CHAIN_ID_ETH_MAINNET, CHAIN_ID_LINEA_MAINNET,
-    CHAIN_ID_OP_MAINNET, CHAIN_ID_SEPOLIA,
-};
+use rsp_client_executor::{io::ClientExecutorInput, ChainVariant, CHAIN_ID_ETH_MAINNET};
 use rsp_host_executor::HostExecutor;
 use sp1_sdk::{include_elf, Prover, ProverClient, SP1Stdin};
 use std::path::PathBuf;
@@ -13,13 +9,6 @@ use tracing_subscriber::{
 };
 mod cli;
 use cli::ProviderArgs;
-
-mod execute;
-
-mod eth_proofs;
-
-// const FIB_ELF: &[u8] = include_bytes!("fib-elf.bin");
-// const FIB_STDIN: &[u8] = include_bytes!("fib-stdin.bin");
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
@@ -72,21 +61,9 @@ async fn main() -> eyre::Result<()> {
     // Parse the command line arguments.
     let args = HostArgs::parse();
     let provider_config = args.provider.clone().into_provider().await?;
-    let eth_proofs_client = EthProofsClient::new(
-        args.eth_proofs_cluster_id,
-        args.eth_proofs_endpoint,
-        args.eth_proofs_api_token,
-    );
-
-    if let Some(eth_proofs_client) = &eth_proofs_client {
-        eth_proofs_client.queued(args.block_number).await?;
-    }
 
     let variant = match provider_config.chain_id {
         CHAIN_ID_ETH_MAINNET => ChainVariant::Ethereum,
-        CHAIN_ID_OP_MAINNET => ChainVariant::Optimism,
-        CHAIN_ID_LINEA_MAINNET => ChainVariant::Linea,
-        CHAIN_ID_SEPOLIA => ChainVariant::Sepolia,
         _ => {
             eyre::bail!("unknown chain ID: {}", provider_config.chain_id);
         }
@@ -167,10 +144,6 @@ async fn main() -> eyre::Result<()> {
 
     if args.prove {
         println!("Starting proof generation.");
-
-        if let Some(eth_proofs_client) = &eth_proofs_client {
-            eth_proofs_client.proving(args.block_number).await?;
-        }
 
         if let Some(dump_dir) = args.dump_dir {
             let dump_dir = dump_dir.join(format!("{}", args.block_number));

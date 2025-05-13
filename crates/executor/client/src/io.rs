@@ -276,20 +276,6 @@ pub struct TrieDB<'a> {
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
 }
 
-#[derive(Debug, Clone)]
-pub struct BufferedTrieDB<'a> {
-    /// The underlying TrieDB.
-    pub inner: TrieDB<'a>,
-    /// The cached HashedPostState.
-    pub state_diff: &'a HashedPostState,
-}
-
-impl<'a> BufferedTrieDB<'a> {
-    pub fn new(inner: TrieDB<'a>, state_diff: &'a HashedPostState) -> Self {
-        Self { inner, state_diff }
-    }
-}
-
 impl<'a> TrieDB<'a> {
     pub fn new(
         inner: &'a EthereumState,
@@ -333,7 +319,7 @@ impl<'a> TrieDB<'a> {
     }
 }
 
-impl<'a> DatabaseRef for TrieDB<'a> {
+impl DatabaseRef for TrieDB<'_> {
     /// The database error type.
     type Error = ProviderError;
 
@@ -363,48 +349,6 @@ impl<'a> DatabaseRef for TrieDB<'a> {
             .block_hashes
             .get(&number)
             .expect("A block hash must be provided for each block number"))
-    }
-}
-
-impl<'a> DatabaseRef for BufferedTrieDB<'a> {
-    /// The database error type.
-    type Error = ProviderError;
-
-    /// Get basic account information.
-    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let hashed_address = keccak256(address);
-
-        match self.state_diff.accounts.get(&hashed_address) {
-            Some(account) => Ok(account.map(Into::into)),
-            None => self.inner.get_account_from_hashed_address(hashed_address.as_slice()),
-        }
-    }
-
-    /// Get account code by its hash.
-    fn code_by_hash_ref(&self, hash: B256) -> Result<Bytecode, Self::Error> {
-        Ok(self.inner.bytecode_by_hash.get(&hash).map(|code| (*code).clone()).unwrap())
-    }
-
-    /// Get storage value of address at index.
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let hashed_address = keccak256(address);
-        match self.state_diff.storages.get(&hashed_address) {
-            Some(storage) => {
-                let hashed_index = keccak256(index.to_be_bytes::<32>());
-                match storage.storage.get(&hashed_index) {
-                    Some(value) => Ok(*value),
-                    None => {
-                        self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index)
-                    }
-                }
-            }
-            None => self.inner.get_storage_from_hashed_address(hashed_address.as_slice(), index),
-        }
-    }
-
-    /// Get block hash by block number.
-    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        self.inner.block_hash_ref(number)
     }
 }
 
@@ -443,7 +387,8 @@ pub trait WitnessInput {
         if self.state_anchor() != state.state_root() {
             return Err(ClientError::MismatchedStateRoot);
         }
-        
+
+        // Verify the storage tries.
         for (hashed_address, storage_trie) in state.storage_tries.iter() {
             let account =
                 state.state_trie.get_rlp::<TrieAccount>(hashed_address.as_slice()).unwrap();
