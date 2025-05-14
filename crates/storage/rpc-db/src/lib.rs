@@ -26,8 +26,8 @@ pub struct RpcDb<T, P> {
     pub subblock_accounts: RefCell<HashMap<Address, AccountInfo>>,
     /// The subblock's storage.
     pub subblock_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
-    /// The subblock's block hashes.
-    pub cache_block_hashes: RefCell<HashMap<u64, B256>>,
+    /// The block hashes.
+    pub block_hashes: RefCell<HashMap<u64, B256>>,
     /// The persistent accounts, used across multiple subblocks.
     pub persistent_accounts: RefCell<HashMap<Address, AccountInfo>>,
     /// The persistent storage, used across multiple subblocks.
@@ -57,7 +57,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             block: block.into(),
             subblock_accounts: RefCell::new(HashMap::new()),
             subblock_storage: RefCell::new(HashMap::new()),
-            cache_block_hashes: RefCell::new(HashMap::new()),
+            block_hashes: RefCell::new(HashMap::new()),
             persistent_accounts: RefCell::new(HashMap::new()),
             persistent_storage: RefCell::new(HashMap::new()),
             oldest_ancestor: RefCell::new(block),
@@ -163,7 +163,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         *oldest_ancestor = number.min(*oldest_ancestor);
 
         // Record the block hash to the state.
-        self.cache_block_hashes.borrow_mut().insert(number, hash);
+        self.block_hashes.borrow_mut().insert(number, hash);
 
         Ok(hash)
     }
@@ -187,7 +187,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             .collect()
     }
 
-    /// Advances the subblock.
+    /// Resets the subblock state, to get ready for the next subblock.
     pub fn advance_subblock(&self) {
         self.subblock_accounts.borrow_mut().clear();
         self.subblock_storage.borrow_mut().clear();

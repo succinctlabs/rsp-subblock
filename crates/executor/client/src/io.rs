@@ -226,12 +226,6 @@ impl SubblockOutput {
     /// This is intended to ONLY be called by consecutive subblocks of the same block.
     /// `self` is the current cumulative subblock output, and `other` is the new subblock output.
     pub fn extend(&mut self, other: Self) {
-        // Get the gas used so far, and add it to all of the new receipts.
-        let cumulative_gas_used = match self.receipts.last() {
-            Some(receipt) => receipt.cumulative_gas_used,
-            None => 0,
-        };
-
         // Make sure that the current output state root lines up with the next input state root.
         assert_eq!(self.output_state_root, other.input_state_root);
         self.output_state_root = other.output_state_root;
@@ -248,14 +242,14 @@ impl SubblockOutput {
 #[derive(Debug, Clone)]
 pub struct TrieDB<'a> {
     inner: &'a EthereumState,
-    block_hashes: HashMap<u64, B256>,
+    block_hashes: BTreeMap<u64, B256>,
     bytecode_by_hash: HashMap<B256, &'a Bytecode>,
 }
 
 impl<'a> TrieDB<'a> {
     pub fn new(
         inner: &'a EthereumState,
-        block_hashes: HashMap<u64, B256>,
+        block_hashes: BTreeMap<u64, B256>,
         bytecode_by_hash: HashMap<B256, &'a Bytecode>,
     ) -> Self {
         Self { inner, block_hashes, bytecode_by_hash }
@@ -378,7 +372,7 @@ pub trait WitnessInput {
             self.bytecodes().map(|code| (code.hash_slow(), code)).collect::<HashMap<_, _>>();
 
         // Verify and build block hashes
-        let mut block_hashes: HashMap<u64, B256> = HashMap::new();
+        let mut block_hashes: BTreeMap<u64, B256> = BTreeMap::new();
         for (child_header, parent_header) in self.headers().tuple_windows() {
             if parent_header.number != child_header.number - 1 {
                 return Err(ClientError::InvalidHeaderBlockNumber(

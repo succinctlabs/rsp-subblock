@@ -5,12 +5,7 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Display,
-    io::Cursor,
-    iter::once,
-};
+use std::{collections::BTreeMap, fmt::Display, io::Cursor, iter::once};
 
 use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
@@ -32,7 +27,7 @@ use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{SpecId::BEDROCK, B256, U256};
+use revm_primitives::{B256, U256};
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 

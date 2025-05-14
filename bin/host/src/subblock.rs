@@ -12,10 +12,7 @@ use rsp_mpt::EthereumState;
 use sp1_sdk::{
     include_elf, HashableKey, Prover, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
 };
-use std::{
-    io::{Cursor, Write},
-    path::PathBuf,
-};
+use std::{io::Cursor, path::PathBuf};
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
@@ -208,7 +205,10 @@ pub fn to_aggregation_stdin(
         let mut current_public_values = Vec::new();
         let input = &subblock_host_output.subblock_inputs[i];
         bincode::serialize_into(&mut current_public_values, input).unwrap();
-        bincode::serialize_into(&mut current_public_values, &subblock_host_output.subblock_outputs[i])
+        bincode::serialize_into(
+            &mut current_public_values,
+            &subblock_host_output.subblock_outputs[i],
+        )
         .unwrap();
 
         // let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])

@@ -431,7 +431,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
             // Update the cumulative gas used.
             let receipts = subblock_output.receipts.clone();
-            cumulative_gas_used += receipts.last().map(|r| r.cumulative_gas_used - starting_gas_used).unwrap_or(0);
+            cumulative_gas_used +=
+                receipts.last().map(|r| r.cumulative_gas_used - starting_gas_used).unwrap_or(0);
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(
@@ -461,9 +462,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
             // Record the state requests for this subblock.
             let subblock_state_requests = rpc_db.get_state_requests();
+
             // Merge the state requests from the subblock into `cumulative_state_requests`.
             merge_state_requests(&mut cumulative_state_requests, &subblock_state_requests);
-
             all_state_requests.push(subblock_state_requests);
 
             let mut subblock_input = SubblockInput {
@@ -480,7 +481,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
 
-            // Advance subblock
+            // Advance subblock.
             num_transactions_completed = upper;
             rpc_db.advance_subblock();
 
