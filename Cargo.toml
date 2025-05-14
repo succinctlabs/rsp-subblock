@@ -1,3 +1,5 @@
+# TODO: use public sp1 version! (and new patches?)
+
 [workspace]
 members = [
     "bin/host",
@@ -14,10 +16,7 @@ resolver = "2"
 inherits = "release"
 debug-assertions = true
 debug = true
-# lto = "fat"
 
-[profile.release]
-# lto = "fat"
 
 [workspace.package]
 edition = "2021"
