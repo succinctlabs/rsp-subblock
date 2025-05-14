@@ -142,7 +142,6 @@ pub struct SubblockHostOutput {
     pub subblock_parent_states: Vec<Vec<u8>>,
     pub subblock_outputs: Vec<SubblockOutput>,
     pub agg_input: AggregationInput,
-    pub agg_parent_state: Vec<u8>,
 }
 
 impl SubblockHostOutput {

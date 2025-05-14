@@ -20,10 +20,6 @@ struct HostArgs {
     #[clap(flatten)]
     provider: ProviderArgs,
 
-    /// Whether to generate a proof or just execute the block.
-    #[clap(long)]
-    prove: bool,
-
     /// Where to dump the elf and stdin.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
@@ -32,22 +28,6 @@ struct HostArgs {
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
-
-    /// The path to the CSV file containing the execution data.
-    #[clap(long, default_value = "report.csv")]
-    report_path: PathBuf,
-
-    /// Optional ETH proofs endpoint.
-    #[clap(long, env, requires("eth_proofs_api_token"))]
-    eth_proofs_endpoint: Option<String>,
-
-    /// Optional ETH proofs API token.
-    #[clap(long, env)]
-    eth_proofs_api_token: Option<String>,
-
-    /// Optional ETH proofs cluster ID.
-    #[clap(long, default_value_t = 1)]
-    eth_proofs_cluster_id: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]

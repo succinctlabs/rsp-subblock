@@ -5,14 +5,12 @@
 
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
-use rkyv::util::AlignedVec;
 use rsp_client_executor::{io::SubblockHostOutput, ChainVariant};
 use rsp_host_executor::HostExecutor;
-use rsp_mpt::EthereumState;
 use sp1_sdk::{
     include_elf, HashableKey, Prover, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
 };
-use std::{io::Cursor, path::PathBuf};
+use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
@@ -38,12 +36,6 @@ struct HostArgs {
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
-    /// Optional path to the proof cache
-    #[clap(long)]
-    proof_cache_dir: Option<PathBuf>,
-    /// The path to the CSV file containing the execution data.
-    #[clap(long, default_value = "report.csv")]
-    report_path: PathBuf,
 }
 
 #[tokio::main]
@@ -217,17 +209,18 @@ pub fn to_aggregation_stdin(
         public_values.iter().map(|v| v.len()).sum::<usize>()
     );
 
-    let mut aligned_vec = AlignedVec::<16>::new();
-    let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
-    aligned_vec.extend_from_reader(&mut reader).unwrap();
-    let parent_state =
-        rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
-    let parent_state_root = parent_state.state_root();
+    // // Deserialize the parent state and compute the root.
+    // let mut aligned_vec = AlignedVec::<16>::new();
+    // let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
+    // aligned_vec.extend_from_reader(&mut reader).unwrap();
+    // let parent_state =
+    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
+    // let parent_state_root = parent_state.state_root();
 
     stdin.write::<Vec<Vec<u8>>>(&public_values);
     stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     stdin.write(&subblock_host_output.agg_input);
-    stdin.write(&parent_state_root);
+    stdin.write(&subblock_host_output.agg_input.parent_header().state_root);
     stdin
 }
 

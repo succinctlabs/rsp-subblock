@@ -684,7 +684,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_parent_states,
             subblock_outputs,
             agg_input: aggregation_input,
-            agg_parent_state: parent_state_bytes,
         };
 
         #[cfg(debug_assertions)]
