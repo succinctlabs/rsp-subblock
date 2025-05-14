@@ -28,10 +28,10 @@ pub struct RpcDb<T, P> {
     pub subblock_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The subblock's block hashes.
     pub cache_block_hashes: RefCell<HashMap<u64, B256>>,
-    /// The cached accounts.
-    pub cache_accounts: RefCell<HashMap<Address, AccountInfo>>,
-    /// The cached storage.
-    pub cache_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
+    /// The persistent accounts, used across multiple subblocks.
+    pub persistent_accounts: RefCell<HashMap<Address, AccountInfo>>,
+    /// The persistent storage, used across multiple subblocks.
+    pub persistent_storage: RefCell<HashMap<Address, HashMap<U256, U256>>>,
     /// The oldest block whose header/hash has been requested.
     pub oldest_ancestor: RefCell<u64>,
     /// A phantom type to make the struct generic over the transport.
@@ -58,8 +58,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
             subblock_accounts: RefCell::new(HashMap::new()),
             subblock_storage: RefCell::new(HashMap::new()),
             cache_block_hashes: RefCell::new(HashMap::new()),
-            cache_accounts: RefCell::new(HashMap::new()),
-            cache_storage: RefCell::new(HashMap::new()),
+            persistent_accounts: RefCell::new(HashMap::new()),
+            persistent_storage: RefCell::new(HashMap::new()),
             oldest_ancestor: RefCell::new(block),
             _phantom: PhantomData,
         }
@@ -70,9 +70,9 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         tracing::debug!("fetching account info for address: {}", address);
 
         // Prioritize fetching from the cache.
-        if self.cache_accounts.borrow().contains_key(&address) {
+        if self.persistent_accounts.borrow().contains_key(&address) {
             // Record the account info to the subblock state.
-            let account_info = self.cache_accounts.borrow().get(&address).unwrap().clone();
+            let account_info = self.persistent_accounts.borrow().get(&address).unwrap().clone();
             self.subblock_accounts.borrow_mut().insert(address, account_info.clone());
 
             return Ok(account_info);
@@ -118,7 +118,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         tracing::debug!("fetching storage value at address: {}, index: {}", address, index);
 
         // Prioritize fetching from the cache.
-        if let Some(storage_map) = self.cache_storage.borrow().get(&address) {
+        if let Some(storage_map) = self.persistent_storage.borrow().get(&address) {
             if let Some(value) = storage_map.get(&index) {
                 // Record the storage value to the subblock state.
                 let mut storage_values = self.subblock_storage.borrow_mut();
@@ -193,14 +193,18 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone> RpcDb<T, P> {
         self.subblock_storage.borrow_mut().clear();
     }
 
+    /// Accumulates the subblock's state diffs into the persistent state.
     pub fn update_state_diffs(&mut self, state_diffs: &BundleState) {
         for (address, account) in state_diffs.state.iter() {
             match &account.info {
-                Some(info) => self.cache_accounts.borrow_mut().insert(*address, info.clone()),
-                None => self.cache_accounts.borrow_mut().insert(*address, AccountInfo::default()), /* This indicates a destroyed account */
+                Some(info) => self.persistent_accounts.borrow_mut().insert(*address, info.clone()),
+                None => {
+                    // This indicates a destroyed account.
+                    self.persistent_accounts.borrow_mut().insert(*address, AccountInfo::default())
+                }
             };
             account.storage.iter().for_each(|(k, v)| {
-                self.cache_storage
+                self.persistent_storage
                     .borrow_mut()
                     .entry(*address)
                     .or_default()
