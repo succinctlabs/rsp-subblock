@@ -3187,13 +3187,13 @@ dependencies = [
  "rkyv",
  "rsp-mpt",
  "rsp-primitives",
- "rsp-witness-db",
  "serde",
  "serde_json",
  "sha2",
  "sp1-zkvm",
  "thiserror 1.0.69",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -3234,17 +3234,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
-]
-
-[[package]]
-name = "rsp-witness-db"
-version = "0.1.0"
-dependencies = [
- "reth-primitives",
- "reth-storage-errors",
- "revm-primitives",
- "rsp-primitives",
- "serde",
 ]
 
 [[package]]

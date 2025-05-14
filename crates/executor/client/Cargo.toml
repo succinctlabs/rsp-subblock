@@ -22,9 +22,9 @@ futures.workspace = true
 bincode.workspace = true
 rkyv.workspace = true
 cfg-if.workspace = true
+tracing.workspace = true
 
 # workspace
-rsp-witness-db.workspace = true
 rsp-primitives.workspace = true
 rsp-mpt.workspace = true
 

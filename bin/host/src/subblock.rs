@@ -1,6 +1,7 @@
-//! Streaming subblock execution.
+//! Subblock executor.
 //!
-//! Directly creates an aggregation task.
+//! This is a standalone program that can be used to execute a subblock, and optionally dump the
+//! elf/stdin pairs to a directory.
 
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
@@ -111,6 +112,7 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
+    // Todo: rename
     schedule_task(
         subblock_pk,
         args.block_number,
@@ -204,8 +206,8 @@ pub fn to_aggregation_stdin(
     let mut public_values = Vec::new();
     for i in 0..subblock_host_output.subblock_inputs.len() {
         let mut current_public_values = Vec::new();
-        let transactions = &subblock_host_output.subblock_inputs[i].current_block.body;
-        bincode::serialize_into(&mut current_public_values, transactions).unwrap();
+        let input = &subblock_host_output.subblock_inputs[i];
+        bincode::serialize_into(&mut current_public_values, input).unwrap();
 
         let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
             .expect("failed to serialize subblock output")

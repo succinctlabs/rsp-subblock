@@ -16,8 +16,10 @@ struct HostArgs {
     /// The block number of the block to execute.
     #[clap(long)]
     block_number: u64,
+
     #[clap(flatten)]
     provider: ProviderArgs,
+
     /// Whether to generate a proof or just execute the block.
     #[clap(long)]
     prove: bool,
@@ -25,10 +27,12 @@ struct HostArgs {
     /// Where to dump the elf and stdin.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
+
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
+
     /// The path to the CSV file containing the execution data.
     #[clap(long, default_value = "report.csv")]
     report_path: PathBuf,
@@ -131,27 +135,13 @@ async fn main() -> eyre::Result<()> {
     let (_public_values, execution_report) = client.execute(&pk.elf, &stdin).run().unwrap();
 
     println!("execution_report: {}", execution_report);
-    // if eth_proofs_client.is_none() {
-    //     // Process the execute report, print it out, and save data to a CSV specified by
-    //     // report_path.
-    //     process_execution_report(
-    //         variant,
-    //         client_input,
-    //         &execution_report,
-    //         args.report_path.clone(),
-    //     )?;
-    // }
 
-    if args.prove {
-        println!("Starting proof generation.");
-
-        if let Some(dump_dir) = args.dump_dir {
-            let dump_dir = dump_dir.join(format!("{}", args.block_number));
-            let elf_path = dump_dir.join("basic_elf.bin");
-            let stdin_path = dump_dir.join("basic_stdin.bin");
-            std::fs::write(elf_path, pk.elf.as_ref())?;
-            std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
-        }
+    if let Some(dump_dir) = args.dump_dir {
+        let dump_dir = dump_dir.join(format!("{}", args.block_number));
+        let elf_path = dump_dir.join("basic_elf.bin");
+        let stdin_path = dump_dir.join("basic_stdin.bin");
+        std::fs::write(elf_path, pk.elf.as_ref())?;
+        std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
     }
 
     Ok(())

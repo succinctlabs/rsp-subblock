@@ -1683,8 +1683,7 @@ mod tests {
         let serialized_size_after =
             rkyv::to_bytes::<rkyv::rancor::Error>(&pruned_trie).unwrap().len();
 
-        println!("serialized_size: {}", serialized_size);
-        println!("serialized_size_after: {}", serialized_size_after);
+        assert!(serialized_size_after < serialized_size);
 
         for i in touched_idx.iter() {
             assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
@@ -1702,64 +1701,13 @@ mod tests {
         trie.delete(&keccak(touched_idx[1].to_be_bytes())).unwrap();
         assert_eq!(pruned_trie.hash(), trie.hash());
 
-        // for i in touched_idx.iter().rev() {
-        //     let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
-        //     let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
-        //     assert_eq!(res1, res2);
-        //     assert_eq!(pruned_trie.hash(), trie.hash());
-        // }
+        for i in touched_idx.iter().rev() {
+            let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            assert_eq!(res1, res2);
+            assert_eq!(pruned_trie.hash(), trie.hash());
+        }
     }
-
-    // #[test]
-    // pub fn test_keccak_trie_prune_2() {
-    //     const N: usize = 1000;
-
-    //     // insert
-    //     let mut trie = MptNode::default();
-    //     for i in 0..N {
-    //         assert!(trie.insert_rlp(&keccak(i.to_be_bytes()), i).unwrap());
-    //     }
-
-    //     let expected = trie.hash();
-
-    //     let touched_idx = (0..100).map(|_|
-    // rand::thread_rng().gen_range(0..N)).collect::<Vec<_>>();
-
-    //     // get
-    //     for i in 0..N {
-    //         assert_eq!(trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(i));
-    //         assert!(trie.get(&keccak((i + N).to_be_bytes())).unwrap().is_none());
-    //     }
-
-    //     let touched_refs = touched_idx
-    //         .iter()
-    //         .flat_map(|&key| trie.get_with_touched(&keccak(key.to_be_bytes())).unwrap().1)
-    //         .collect();
-
-    //     let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
-
-    //     let mut pruned_trie = trie.clone();
-    //     pruned_trie.prune_unmarked_nodes(&touched_refs);
-
-    //     let serialized_size_after =
-    //         rkyv::to_bytes::<rkyv::rancor::Error>(&pruned_trie).unwrap().len();
-
-    //     println!("serialized_size: {}", serialized_size);
-    //     println!("serialized_size_after: {}", serialized_size_after);
-
-    //     for i in touched_idx.iter() {
-    //         assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
-    //     }
-
-    //     assert_eq!(pruned_trie.hash(), expected);
-
-    //     for i in touched_idx.iter().rev() {
-    //         let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
-    //         let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
-    //         assert_eq!(res1, res2);
-    //         assert_eq!(pruned_trie.hash(), trie.hash());
-    //     }
-    // }
 
     #[test]
     pub fn test_index_trie() {
