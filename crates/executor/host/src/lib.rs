@@ -19,7 +19,7 @@ use rsp_client_executor::{
     io::{
         AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
     },
-    ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
+    ChainVariant, EthereumVariant, Variant,
 };
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
@@ -109,9 +109,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
     ) -> Result<ClientExecutorInput, HostError> {
         match variant {
             ChainVariant::Ethereum => self.execute_variant::<EthereumVariant>(block_number).await,
-            ChainVariant::Optimism => self.execute_variant::<OptimismVariant>(block_number).await,
-            ChainVariant::Linea => self.execute_variant::<LineaVariant>(block_number).await,
-            ChainVariant::Sepolia => self.execute_variant::<SepoliaVariant>(block_number).await,
         }
     }
 

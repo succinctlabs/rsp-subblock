@@ -5,7 +5,7 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{borrow::BorrowMut, collections::HashMap, fmt::Display, io::Cursor, iter::once};
+use std::{collections::HashMap, fmt::Display, io::Cursor, iter::once};
 
 use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
@@ -22,14 +22,12 @@ use reth_evm::execute::{
     BlockExecutionError, BlockExecutionOutput, BlockExecutorProvider, Executor,
 };
 use reth_evm_ethereum::execute::EthExecutorProvider;
-use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
-use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
 use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{address, B256, U256};
+use revm_primitives::{B256, U256};
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 
@@ -87,29 +85,11 @@ pub trait Variant {
 #[derive(Debug)]
 pub struct EthereumVariant;
 
-/// Implementation for Optimism-specific execution/validation logic.
-#[derive(Debug)]
-pub struct OptimismVariant;
-
-/// Implementation for Linea-specific execution/validation logic.
-#[derive(Debug)]
-pub struct LineaVariant;
-
-/// Implementation for Sepolia-specific execution/validation logic.
-#[derive(Debug)]
-pub struct SepoliaVariant;
-
 /// EVM chain variants that implement different execution/validation rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChainVariant {
     /// Ethereum networks.
     Ethereum,
-    /// OP stack networks.
-    Optimism,
-    /// Linea networks.
-    Linea,
-    /// Testnets
-    Sepolia,
 }
 
 impl ChainVariant {
@@ -117,9 +97,6 @@ impl ChainVariant {
     pub fn chain_id(&self) -> u64 {
         match self {
             ChainVariant::Ethereum => CHAIN_ID_ETH_MAINNET,
-            ChainVariant::Optimism => CHAIN_ID_OP_MAINNET,
-            ChainVariant::Linea => CHAIN_ID_LINEA_MAINNET,
-            ChainVariant::Sepolia => CHAIN_ID_SEPOLIA,
         }
     }
 }
@@ -465,117 +442,5 @@ impl Variant for EthereumVariant {
         requests: &[Request],
     ) -> Result<(), ConsensusError> {
         validate_subblock_post_execution_ethereum(header, chain_spec, receipts, requests)
-    }
-}
-
-impl Variant for OptimismVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::op_mainnet()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        OpExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Optimism),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        _requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_optimism(block, chain_spec, receipts)
-    }
-}
-
-impl Variant for LineaVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::linea_mainnet()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        EthExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Linea),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_ethereum(block, chain_spec, receipts, requests)
-    }
-
-    fn pre_process_block(block: &Block) -> Block {
-        // Linea network uses clique consensus, which is not implemented in reth.
-        // The main difference for the execution part is the block beneficiary:
-        // reth will credit the block reward to the beneficiary address (coinbase)
-        // whereas in clique, the block reward is credited to the signer.
-
-        // We extract the clique beneficiary address from the genesis extra data.
-        // - vanity: 32 bytes
-        // - address: 20 bytes
-        // - seal: 65 bytes
-        // we extract the address from the 32nd to 52nd byte.
-        let addr = address!("8f81e2e3f8b46467523463835f965ffe476e1c9e");
-
-        // We hijack the beneficiary address here to match the clique consensus.
-        let mut block = block.clone();
-        block.header.borrow_mut().beneficiary = addr;
-        block
-    }
-}
-
-impl Variant for SepoliaVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::sepolia()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        EthExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Ethereum),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_ethereum(block, chain_spec, receipts, requests)
     }
 }

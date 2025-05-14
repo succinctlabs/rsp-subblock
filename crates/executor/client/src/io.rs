@@ -37,8 +37,7 @@ pub struct ClientExecutorInput {
     pub bytecodes: Vec<Bytecode>,
 }
 
-/// Consider the `parent_state` and the `input_state_diff` as part of this struct. I can't put them
-/// in the same struct though because that messes with the bincode/rkyv alignment stuff.
+/// Input to the subblock program.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
@@ -54,7 +53,7 @@ pub struct SubblockInput {
     pub is_first_subblock: bool,
     /// Whether this is the last subblock (do we need to do post-execution transactions?)
     pub is_last_subblock: bool,
-    /// The starting gas used for the subblock
+    /// The starting gas used for the subblock.
     pub starting_gas_used: u64,
 }
 
