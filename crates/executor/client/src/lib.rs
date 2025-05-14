@@ -309,9 +309,23 @@ impl ClientExecutor {
                     assert!(!subblock_input.is_last_subblock);
                 }
 
+                // Check that the subblock header, ommers, withdrawals, and requests are the same as
+                // the main block.
                 assert_eq!(
                     subblock_input.current_block.header,
                     aggregation_input.current_block.header
+                );
+                assert_eq!(
+                    subblock_input.current_block.ommers,
+                    aggregation_input.current_block.ommers
+                );
+                assert_eq!(
+                    subblock_input.current_block.withdrawals,
+                    aggregation_input.current_block.withdrawals
+                );
+                assert_eq!(
+                    subblock_input.current_block.requests,
+                    aggregation_input.current_block.requests
                 );
                 println!("cycle-tracker-start: deserialize subblock output");
 
