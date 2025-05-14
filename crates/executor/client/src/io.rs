@@ -43,8 +43,10 @@ pub struct ClientExecutorInput {
 pub struct SubblockInput {
     /// The current block (which will be executed inside the client).
     pub current_block: Block,
-    /// The blockhashes used by the subblock
-    /// This can be shrunk, but it's not a big deal
+    /// The blockhashes used by the subblock.
+    ///
+    /// Right now, this is just the blockhashes used by every subblock. In the future, we can
+    /// probably shrink this down to just the blockhashes used by the current subblock.
     pub block_hashes: HashMap<u64, B256>,
     /// The bytecodes used by the subblock
     pub bytecodes: Vec<Bytecode>,

@@ -206,8 +206,8 @@ pub fn to_aggregation_stdin(
     let mut public_values = Vec::new();
     for i in 0..subblock_host_output.subblock_inputs.len() {
         let mut current_public_values = Vec::new();
-        let transactions = &subblock_host_output.subblock_inputs[i].current_block;
-        bincode::serialize_into(&mut current_public_values, transactions).unwrap();
+        let input = &subblock_host_output.subblock_inputs[i];
+        bincode::serialize_into(&mut current_public_values, input).unwrap();
 
         let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
             .expect("failed to serialize subblock output")

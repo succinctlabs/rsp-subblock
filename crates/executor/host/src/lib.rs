@@ -419,8 +419,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             rpc_db.update_state_diffs(&subblock_output.state);
 
             let receipts = subblock_output.receipts.clone();
-
-            cumulative_gas_used += receipts.last().unwrap().cumulative_gas_used;
+            cumulative_gas_used += receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(

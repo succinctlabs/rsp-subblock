@@ -240,7 +240,6 @@ impl ClientExecutor {
         executor_block_input.is_last_subblock = input.is_last_subblock;
         executor_block_input.starting_gas_used = input.starting_gas_used;
 
-        println!("starting gas used: {}", input.starting_gas_used);
         let executor_difficulty = input.current_block.header.difficulty;
         let executor_output = profile!("execute", {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
@@ -288,20 +287,45 @@ impl ClientExecutor {
             SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
         profile!("aggregate", {
-            for public_value in public_values {
+            for (i, public_value) in public_values.iter().enumerate() {
                 let public_values_digest = Sha256::digest(&public_value);
                 cfg_if! {
                     if #[cfg(target_os = "zkvm")] {
                         sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
                     }
                 }
-                println!("cycle-tracker-start: deserialize block");
+                println!("cycle-tracker-start: deserialize subblock input");
                 let mut reader = Cursor::new(&public_value);
-                let subblock: Block = bincode::deserialize_from(&mut reader).unwrap();
+                let subblock_input: SubblockInput = bincode::deserialize_from(&mut reader).unwrap();
 
-                println!("cycle-tracker-end: deserialize block");
+                println!("cycle-tracker-end: deserialize subblock input");
 
-                assert_eq!(subblock.header, aggregation_input.current_block.header);
+                // Check that the starting gas used is the same as the last cumulative gas used.
+                assert_eq!(
+                    subblock_input.starting_gas_used,
+                    cumulative_state_diff
+                        .receipts
+                        .last()
+                        .map(|r| r.cumulative_gas_used)
+                        .unwrap_or(0)
+                );
+
+                // Consistency checks on the subblock input's first/last subblock flags.
+                if i == 0 {
+                    assert!(subblock_input.is_first_subblock);
+                }
+                if i == public_values.len() - 1 {
+                    assert!(subblock_input.is_last_subblock);
+                }
+                if i > 0 && i < public_values.len() - 1 {
+                    assert!(!subblock_input.is_first_subblock);
+                    assert!(!subblock_input.is_last_subblock);
+                }
+
+                assert_eq!(
+                    subblock_input.current_block.header,
+                    aggregation_input.current_block.header
+                );
                 println!("cycle-tracker-start: deserialize subblock output");
 
                 let subblock_output: SubblockOutput =
@@ -316,7 +340,7 @@ impl ClientExecutor {
                 cumulative_state_diff.extend(subblock_output);
 
                 // Also add this subblock's transaction body to the transaction body.
-                transaction_body.extend(subblock.body);
+                transaction_body.extend(subblock_input.current_block.body);
                 println!("cycle-tracker-end: extend state");
             }
         });
@@ -328,6 +352,11 @@ impl ClientExecutor {
         );
 
         profile!("validate subblock aggregation", {
+            // Check that the accumulated logs bloom is the same as the main block logs bloom.
+            assert_eq!(
+                cumulative_state_diff.logs_bloom,
+                aggregation_input.current_block.header.logs_bloom
+            );
             V::validate_subblock_aggregation(
                 &aggregation_input.current_block.header,
                 &V::spec(),
