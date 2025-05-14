@@ -30,10 +30,11 @@ pub fn main() {
         .expect("failed to execute client");
 
     // Commit the state diff.
-    println!("cycle-tracker-start: serialize state diff");
-    let serialized = bincode::serialize(&subblock_output).expect("failed to serialize state diff");
-    println!("cycle-tracker-end: serialize state diff");
-    println!("cycle-tracker-start: commit");
-    sp1_zkvm::io::commit_slice(&serialized);
-    println!("cycle-tracker-end: commit");
+    sp1_zkvm::io::commit(&subblock_output);
+    // println!("cycle-tracker-start: serialize state diff");
+    // let serialized = bincode::serialize(&subblock_output).expect("failed to serialize state diff");
+    // println!("cycle-tracker-end: serialize state diff");
+    // println!("cycle-tracker-start: commit");
+    // sp1_zkvm::io::commit_slice(&serialized);
+    // println!("cycle-tracker-end: commit");
 }

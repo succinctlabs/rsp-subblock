@@ -208,12 +208,14 @@ pub fn to_aggregation_stdin(
         let mut current_public_values = Vec::new();
         let input = &subblock_host_output.subblock_inputs[i];
         bincode::serialize_into(&mut current_public_values, input).unwrap();
+        bincode::serialize_into(&mut current_public_values, &subblock_host_output.subblock_outputs[i])
+        .unwrap();
 
-        let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
-            .expect("failed to serialize subblock output")
-            .to_vec();
+        // let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
+        //     .expect("failed to serialize subblock output")
+        //     .to_vec();
 
-        current_public_values.write_all(&serialized).unwrap();
+        // current_public_values.write_all(&serialized).unwrap();
 
         public_values.push(current_public_values);
     }

@@ -398,7 +398,8 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             let is_first_subblock = num_transactions_completed == 0;
             subblock_input.is_first_subblock = is_first_subblock;
             subblock_input.is_last_subblock = false;
-            subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT;
+            subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT + cumulative_gas_used;
+            subblock_input.starting_gas_used = cumulative_gas_used;
             let starting_gas_used = cumulative_gas_used;
 
             tracing::info!("num transactions left: {}", subblock_input.body.len());
@@ -430,7 +431,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
             // Update the cumulative gas used.
             let receipts = subblock_output.receipts.clone();
-            cumulative_gas_used += receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
+            cumulative_gas_used += receipts.last().map(|r| r.cumulative_gas_used - starting_gas_used).unwrap_or(0);
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(

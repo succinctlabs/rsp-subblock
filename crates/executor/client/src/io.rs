@@ -92,6 +92,7 @@ impl SubblockHostOutput {
                 .expect("failed to recover senders");
             input.is_first_subblock = subblock_input.is_first_subblock;
             input.is_last_subblock = subblock_input.is_last_subblock;
+            input.starting_gas_used = subblock_input.starting_gas_used;
 
             tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
             tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
@@ -236,14 +237,8 @@ impl SubblockOutput {
         self.output_state_root = other.output_state_root;
         self.logs_bloom.accrue_bloom(&other.logs_bloom);
 
-        // Add the cumulative gas used to the receipts.
-        let mut receipts = other.receipts;
-        receipts.iter_mut().for_each(|receipt| {
-            receipt.cumulative_gas_used += cumulative_gas_used;
-        });
-
         // Add other receipts to the current receipts.
-        self.receipts.extend(receipts);
+        self.receipts.extend(other.receipts);
 
         // Add other requests to the current requests.
         self.requests.extend(other.requests);
