@@ -640,22 +640,32 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 touched_state.insert(keccak256(address), keys);
             }
 
+            // Generate the subblock parent state by taking the state diff of the subblock and all
+            // touched addresses, and then pruning the big state.
             let mut subblock_parent_state = big_state.clone();
+
             let serialized_size =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
             let prev_root = subblock_parent_state.state_root();
+
             subblock_parent_state.prune(&state_diffs[i], &touched_state);
+
+            // Assert that pruning did not change the state root.
+            let new_root = subblock_parent_state.state_root();
+            assert_eq!(prev_root, new_root);
+
             let new_serialized_size =
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
             tracing::info!(
                 "Pruned state compression ratio: {}",
                 new_serialized_size as f64 / serialized_size as f64
             );
-            let new_root = subblock_parent_state.state_root();
-            assert_eq!(prev_root, new_root);
             subblock_parent_states.push(
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
             );
+
+            // Update the big state with the state diff of this subblock, and set the fields of this
+            // subblock's input/output accordingly.
             big_state.update(&state_diffs[i]);
             let output_root = big_state.state_root();
 

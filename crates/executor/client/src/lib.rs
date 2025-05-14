@@ -198,7 +198,6 @@ impl ClientExecutor {
 
         println!("cycle-tracker-start: construct buffered trie db");
         // Finally, construct the database.
-        // TODO: verify the parent block hashes????
         let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
         let trie_db =
             TrieDB::new(input_state, input.block_hashes.into_iter().collect(), bytecode_by_hash);

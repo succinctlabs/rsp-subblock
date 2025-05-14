@@ -5,20 +5,18 @@ use std::{
 
 use itertools::Itertools;
 use reth_errors::ProviderError;
-use reth_execution_types::ExecutionOutcome;
 use reth_primitives::{
-    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Receipts, Request, B256,
-    U256,
+    revm_primitives::AccountInfo, Address, Block, Bloom, Header, Receipt, Request, B256, U256,
 };
 use reth_trie::{TrieAccount, EMPTY_ROOT_HASH};
-use revm::{db::WrapDatabaseRef, DatabaseRef};
+use revm::DatabaseRef;
 use revm_primitives::{keccak256, Bytecode};
 use rsp_mpt::EthereumState;
 use serde::{Deserialize, Serialize};
 
 use rkyv::util::AlignedVec;
 
-use crate::{error::ClientError, EthereumVariant, Variant};
+use crate::{error::ClientError, EthereumVariant};
 
 /// The input for the client to execute a block and fully verify the STF (state transition
 /// function).
@@ -76,73 +74,99 @@ impl SubblockHostOutput {
     /// Validates the output of the host executor, by running all of the subblocks natively and
     /// checking their consistency.
     pub fn validate(&self) -> Result<(), ClientError> {
-        let current_block = self.agg_input.current_block.clone();
-        let executor_difficulty = current_block.header.difficulty;
+        let executor = crate::ClientExecutor;
+
         for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
             let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
                 &self.subblock_parent_states[i],
             )
             .unwrap();
 
-            let subblock_output = self.subblock_outputs[i].clone();
-            let debug_subblock_input = subblock_input.clone();
-            let mut input = debug_subblock_input
-                .current_block
-                .with_recovered_senders()
-                .expect("failed to recover senders");
-            input.is_first_subblock = subblock_input.is_first_subblock;
-            input.is_last_subblock = subblock_input.is_last_subblock;
-            input.starting_gas_used = subblock_input.starting_gas_used;
+            let subblock_output = executor.execute_subblock::<EthereumVariant>(
+                subblock_input.clone(),
+                &mut subblock_parent_state,
+            )?;
 
-            tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
-            tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
-
-            let bytecode_by_hash =
-                subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-            let trie_db = TrieDB::new(
-                &subblock_parent_state,
-                subblock_input.block_hashes.clone().into_iter().collect(),
-                bytecode_by_hash,
-            );
-            let wrap_ref = WrapDatabaseRef(trie_db);
-            let debug_execution_output =
-                EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
-            let receipts = debug_execution_output.receipts.clone();
-            let requests = debug_execution_output.requests.clone();
-            let outcome = ExecutionOutcome::new(
-                debug_execution_output.state,
-                Receipts::from(debug_execution_output.receipts),
-                current_block.header.number,
-                vec![debug_execution_output.requests.into()],
-            );
-
-            let mut logs_bloom = Bloom::default();
-            receipts.iter().for_each(|r| {
-                logs_bloom.accrue_bloom(&r.bloom_slow());
-            });
-            let old_state_root = subblock_parent_state.state_root();
-            subblock_parent_state.update(&outcome.hash_state_slow());
-            let debug_subblock_output = SubblockOutput {
-                receipts,
-                logs_bloom,
-                output_state_root: subblock_parent_state.state_root(),
-                input_state_root: old_state_root,
-                requests,
-            };
-
-            if debug_subblock_output != subblock_output {
+            if subblock_output != self.subblock_outputs[i] {
                 eprintln!(
-                    "output state root: {:?} {:?}",
-                    debug_subblock_output.output_state_root, subblock_output.output_state_root
+                    "executed output state root {:?}\n pre-generated output state root {:?}",
+                    subblock_output.output_state_root, self.subblock_outputs[i].output_state_root
                 );
                 eprintln!(
-                    "input state root: {:?} {:?}",
-                    debug_subblock_output.input_state_root, subblock_output.input_state_root
+                    "executed input state root {:?}\n pre-generated input state root {:?}",
+                    subblock_output.input_state_root, self.subblock_outputs[i].input_state_root
                 );
                 return Err(ClientError::InvalidSubblockOutput);
             }
         }
         Ok(())
+        // let current_block = self.agg_input.current_block.clone();
+        // let executor_difficulty = current_block.header.difficulty;
+        // for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
+        //     let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
+        //         &self.subblock_parent_states[i],
+        //     )
+        //     .unwrap();
+
+        //     let subblock_output = self.subblock_outputs[i].clone();
+        //     let debug_subblock_input = subblock_input.clone();
+        //     let mut input = debug_subblock_input
+        //         .current_block
+        //         .with_recovered_senders()
+        //         .expect("failed to recover senders");
+        //     input.is_first_subblock = subblock_input.is_first_subblock;
+        //     input.is_last_subblock = subblock_input.is_last_subblock;
+        //     input.starting_gas_used = subblock_input.starting_gas_used;
+
+        //     tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
+        //     tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
+
+        //     let bytecode_by_hash =
+        //         subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+        //     let trie_db = TrieDB::new(
+        //         &subblock_parent_state,
+        //         subblock_input.block_hashes.clone().into_iter().collect(),
+        //         bytecode_by_hash,
+        //     );
+        //     let wrap_ref = WrapDatabaseRef(trie_db);
+        //     let debug_execution_output =
+        //         EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
+        //     let receipts = debug_execution_output.receipts.clone();
+        //     let requests = debug_execution_output.requests.clone();
+        //     let outcome = ExecutionOutcome::new(
+        //         debug_execution_output.state,
+        //         Receipts::from(debug_execution_output.receipts),
+        //         current_block.header.number,
+        //         vec![debug_execution_output.requests.into()],
+        //     );
+
+        //     let mut logs_bloom = Bloom::default();
+        //     receipts.iter().for_each(|r| {
+        //         logs_bloom.accrue_bloom(&r.bloom_slow());
+        //     });
+        //     let old_state_root = subblock_parent_state.state_root();
+        //     subblock_parent_state.update(&outcome.hash_state_slow());
+        //     let debug_subblock_output = SubblockOutput {
+        //         receipts,
+        //         logs_bloom,
+        //         output_state_root: subblock_parent_state.state_root(),
+        //         input_state_root: old_state_root,
+        //         requests,
+        //     };
+
+        //     if debug_subblock_output != subblock_output {
+        //         eprintln!(
+        //             "output state root: {:?} {:?}",
+        //             debug_subblock_output.output_state_root, subblock_output.output_state_root
+        //         );
+        //         eprintln!(
+        //             "input state root: {:?} {:?}",
+        //             debug_subblock_output.input_state_root, subblock_output.input_state_root
+        //         );
+        //         return Err(ClientError::InvalidSubblockOutput);
+        //     }
+        // }
+        // Ok(())
     }
 }
 
