@@ -1,4 +1,7 @@
-use std::{collections::HashMap, iter::once};
+use std::{
+    collections::{BTreeMap, HashMap},
+    iter::once,
+};
 
 use itertools::Itertools;
 use reth_errors::ProviderError;
@@ -46,7 +49,7 @@ pub struct SubblockInput {
     ///
     /// Right now, this is just the blockhashes used by every subblock. In the future, we can
     /// probably shrink this down to just the blockhashes used by the current subblock.
-    pub block_hashes: HashMap<u64, B256>,
+    pub block_hashes: BTreeMap<u64, B256>,
     /// The bytecodes used by the subblock
     pub bytecodes: Vec<Bytecode>,
     /// Whether this is the first subblock (do we need to do pre-execution transactions?)
@@ -97,7 +100,7 @@ impl SubblockHostOutput {
                 subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
             let trie_db = TrieDB::new(
                 &subblock_parent_state,
-                subblock_input.block_hashes.clone(),
+                subblock_input.block_hashes.clone().into_iter().collect(),
                 bytecode_by_hash,
             );
             let wrap_ref = WrapDatabaseRef(trie_db);

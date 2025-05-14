@@ -5,7 +5,12 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{collections::HashMap, fmt::Display, io::Cursor, iter::once};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    io::Cursor,
+    iter::once,
+};
 
 use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
@@ -27,7 +32,7 @@ use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{B256, U256};
+use revm_primitives::{SpecId::BEDROCK, B256, U256};
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 
@@ -200,7 +205,8 @@ impl ClientExecutor {
         // Finally, construct the database.
         // TODO: verify the parent block hashes????
         let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-        let trie_db = TrieDB::new(input_state, input.block_hashes, bytecode_by_hash);
+        let trie_db =
+            TrieDB::new(input_state, input.block_hashes.into_iter().collect(), bytecode_by_hash);
         let wrap_ref = WrapDatabaseRef(trie_db);
         println!("cycle-tracker-end: construct buffered trie db");
 
@@ -264,7 +270,7 @@ impl ClientExecutor {
         let mut cumulative_state_diff =
             SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
-        let mut block_hashes = HashMap::<u64, B256>::new();
+        let mut block_hashes = BTreeMap::<u64, B256>::new();
         profile!("aggregate", {
             for (i, public_value) in public_values.iter().enumerate() {
                 let public_values_digest = Sha256::digest(&public_value);
@@ -347,7 +353,7 @@ impl ClientExecutor {
         });
 
         profile!("verify block hashes", {
-            let mut reconstructed_block_hashes: HashMap<u64, B256> = HashMap::new();
+            let mut reconstructed_block_hashes: BTreeMap<u64, B256> = BTreeMap::new();
             for (child_header, parent_header) in once(&aggregation_input.current_block.header)
                 .chain(aggregation_input.ancestor_headers.iter())
                 .tuple_windows()
