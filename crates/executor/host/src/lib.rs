@@ -2,7 +2,7 @@ mod error;
 pub use error::Error as HostError;
 use reth_trie::AccountProof;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     marker::PhantomData,
     sync::Arc,
     time::Duration,
@@ -467,7 +467,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                block_hashes: HashMap::new(),
+                block_hashes: BTreeMap::new(),
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
                 is_last_subblock,
@@ -587,7 +587,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
         // Fetch the parent headers needed to constrain the BLOCKHASH opcode.
         let oldest_ancestor = *rpc_db.oldest_ancestor.borrow();
         let mut ancestor_headers = vec![];
-        let mut block_hashes = HashMap::new();
+        let mut block_hashes = BTreeMap::new();
         tracing::info!("fetching {} ancestor headers", block_number - oldest_ancestor);
         for height in (oldest_ancestor..=(block_number - 1)).rev() {
             let block = self
