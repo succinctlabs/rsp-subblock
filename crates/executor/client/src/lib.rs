@@ -5,12 +5,13 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{borrow::BorrowMut, fmt::Display, io::Cursor};
+use std::{borrow::BorrowMut, collections::HashMap, fmt::Display, io::Cursor, iter::once};
 
 use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
 use error::ClientError;
 use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB};
+use itertools::Itertools;
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
 use reth_ethereum_consensus::{
@@ -286,6 +287,7 @@ impl ClientExecutor {
         let mut cumulative_state_diff =
             SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
+        let mut block_hashes = HashMap::<u64, B256>::new();
         profile!("aggregate", {
             for (i, public_value) in public_values.iter().enumerate() {
                 let public_values_digest = Sha256::digest(&public_value);
@@ -297,6 +299,14 @@ impl ClientExecutor {
                 println!("cycle-tracker-start: deserialize subblock input");
                 let mut reader = Cursor::new(&public_value);
                 let subblock_input: SubblockInput = bincode::deserialize_from(&mut reader).unwrap();
+
+                // Every subblock should have at least one block hash: the immediate parent block hash.
+                // So an empty block_hashes indicates that this is the first subblock.
+                if i == 0 && block_hashes.is_empty() {
+                    block_hashes = subblock_input.block_hashes;
+                } else {
+                    assert_eq!(block_hashes, subblock_input.block_hashes);
+                }
 
                 println!("cycle-tracker-end: deserialize subblock input");
 
@@ -343,6 +353,23 @@ impl ClientExecutor {
                 transaction_body.extend(subblock_input.current_block.body);
                 println!("cycle-tracker-end: extend state");
             }
+        });
+
+        profile!("verify block hashes", {
+            let mut reconstructed_block_hashes: HashMap<u64, B256> = HashMap::new();
+            for (child_header, parent_header) in once(&aggregation_input.current_block.header)
+                .chain(aggregation_input.ancestor_headers.iter())
+                .tuple_windows()
+            {
+                assert!(parent_header.number == child_header.number - 1);
+
+                let parent_header_hash = parent_header.hash_slow();
+                assert_eq!(parent_header_hash, child_header.parent_hash);
+
+                reconstructed_block_hashes.insert(parent_header.number, parent_header_hash);
+            }
+
+            assert_eq!(reconstructed_block_hashes, block_hashes);
         });
 
         // Check that the subblock transactions match the main block transactions.
