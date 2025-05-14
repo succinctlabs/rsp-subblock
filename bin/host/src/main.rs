@@ -82,7 +82,7 @@ async fn main() -> eyre::Result<()> {
     let client_input = match (client_input_from_cache, provider_config.rpc_url) {
         (Some(client_input_from_cache), _) => client_input_from_cache,
         (None, Some(rpc_url)) => {
-            // Cache not found but we have RPC
+            // Cache not found, but RPC is set.
             // Setup the provider.
             let provider = ReqwestProvider::new_http(rpc_url);
 
@@ -155,11 +155,28 @@ fn try_load_input_from_cache(
         let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
-            // TODO: prune the cache if invalid instead
-            let mut cache_file = std::fs::File::open(cache_path)?;
-            let client_input: ClientExecutorInput = bincode::deserialize_from(&mut cache_file)?;
-
-            Some(client_input)
+            // Try to deserialize the cache file, but handle errors gracefully
+            match std::fs::File::open(&cache_path) {
+                Ok(mut cache_file) => match bincode::deserialize_from(&mut cache_file) {
+                    Ok(client_input) => Some(client_input),
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to deserialize cache file at {}: {}",
+                            cache_path.display(),
+                            err
+                        );
+                        None
+                    }
+                },
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to open cache file at {}: {}",
+                        cache_path.display(),
+                        err
+                    );
+                    None
+                }
+            }
         } else {
             None
         }

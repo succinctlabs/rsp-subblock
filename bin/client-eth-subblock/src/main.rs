@@ -13,7 +13,9 @@ pub fn main() {
     let input = sp1_zkvm::io::read::<SubblockInput>();
     println!("cycle-tracker-end: deserialize input");
 
+    println!("cycle-tracker-start: commit input");
     sp1_zkvm::io::commit(&input);
+    println!("cycle-tracker-end: commit input");
 
     println!("cycle-tracker-start: deserialize rkyv stuff");
 
@@ -23,18 +25,14 @@ pub fn main() {
 
     println!("cycle-tracker-end: deserialize rkyv stuff");
 
+    println!("cycle-tracker-start: execute subblock");
     // Execute the block.
     let executor = ClientExecutor;
     let subblock_output = executor
         .execute_subblock::<EthereumVariant>(input, &mut parent_state)
         .expect("failed to execute client");
+    println!("cycle-tracker-end: execute subblock");
 
     // Commit the state diff.
     sp1_zkvm::io::commit(&subblock_output);
-    // println!("cycle-tracker-start: serialize state diff");
-    // let serialized = bincode::serialize(&subblock_output).expect("failed to serialize state diff");
-    // println!("cycle-tracker-end: serialize state diff");
-    // println!("cycle-tracker-start: commit");
-    // sp1_zkvm::io::commit_slice(&serialized);
-    // println!("cycle-tracker-end: commit");
 }

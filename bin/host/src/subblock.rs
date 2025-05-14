@@ -188,7 +188,7 @@ async fn schedule_subblock_execution(
     Ok(())
 }
 
-/// Constructs the aggregation stdin, sans the subblock proofs.
+/// Constructs the aggregation stdin, minus the subblock proofs.
 pub fn to_aggregation_stdin(
     subblock_host_output: SubblockHostOutput,
     subblock_vk: &SP1VerifyingKey,
@@ -209,9 +209,13 @@ pub fn to_aggregation_stdin(
             &subblock_host_output.subblock_outputs[i],
         )
         .unwrap();
-
         public_values.push(current_public_values);
     }
+
+    tracing::info!(
+        "Public values size in bytes: {}",
+        public_values.iter().map(|v| v.len()).sum::<usize>()
+    );
 
     let mut aligned_vec = AlignedVec::<16>::new();
     let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
@@ -237,11 +241,24 @@ fn try_load_input_from_cache(
             cache_dir.join(format!("subblock-input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
-            // TODO: prune the cache if invalid instead
-            let mut cache_file = std::fs::File::open(cache_path)?;
-            let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
-
-            Some(cache_data)
+            // Try to open and deserialize the cache file, delete it if there's an error
+            match (|| -> eyre::Result<SubblockHostOutput> {
+                let mut cache_file = std::fs::File::open(&cache_path)?;
+                let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
+                Ok(cache_data)
+            })() {
+                Ok(cache_data) => Some(cache_data),
+                Err(err) => {
+                    tracing::warn!("Failed to load cache file {}: {}", cache_path.display(), err);
+                    // Delete the invalid cache file
+                    if let Err(delete_err) = std::fs::remove_file(&cache_path) {
+                        tracing::warn!("Failed to delete invalid cache file: {}", delete_err);
+                    } else {
+                        tracing::info!("Deleted invalid cache file: {}", cache_path.display());
+                    }
+                    None
+                }
+            }
         } else {
             None
         }

@@ -13,15 +13,9 @@ clap.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 bincode.workspace = true
-csv.workspace = true
-lazy_static.workspace = true
 eyre.workspace = true
-reqwest.workspace = true
-hex.workspace = true
-chrono.workspace = true
 rkyv.workspace = true
 sha2.workspace = true
-cfg-if.workspace = true
 
 # workspace
 rsp-host-executor.workspace = true
@@ -31,13 +25,8 @@ rsp-mpt.workspace = true
 # alloy
 alloy-provider.workspace = true
 
-# reth 
-reth-primitives.workspace = true
-
 # sp1
 sp1-sdk = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
-sp1-core-executor = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
-
 
 [build-dependencies]
 sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }

@@ -23,16 +23,13 @@ rsp-primitives.workspace = true
 # reth
 reth-primitives.workspace = true
 reth-trie.workspace = true
-reth-execution-types.workspace = true
 
 # revm
 revm.workspace = true
-revm-primitives.workspace = true
 
 # alloy
 alloy-primitives.workspace = true
 alloy-rlp.workspace = true
-alloy-rpc-types.workspace = true
 
 [dev-dependencies]
 alloy-trie.workspace = true

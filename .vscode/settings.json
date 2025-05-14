@@ -26,15 +26,10 @@
         "incomplete-features"
     ],
     "rust-analyzer.linkedProjects": [
-        // "${workspaceFolder}/cluster/cli/Cargo.toml",
         "${workspaceFolder}/Cargo.toml",
         "${workspaceFolder}/bin/client-eth-subblock/Cargo.toml",
         "${workspaceFolder}/bin/client-eth-agg/Cargo.toml",
         "${workspaceFolder}/bin/client-eth/Cargo.toml",
-        // "${workspaceFolder}/cluster/tester/Cargo.toml",
-        // "${workspaceFolder}/cluster/perf/Cargo.toml",
-        // "cluster/tester/programs/precompiles/Cargo.toml",
-        // "cluster/tester/programs/stress/Cargo.toml",
     ],
     "go.formatTool": "gofmt",
     "go.lintTool": "golangci-lint",
