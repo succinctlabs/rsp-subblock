@@ -183,6 +183,7 @@ impl ClientExecutor {
         Ok(header)
     }
 
+    /// Executes a SubblockInput, and returns a SubblockOutput.
     pub fn execute_subblock<V>(
         &self,
         input: SubblockInput,
@@ -254,6 +255,11 @@ impl ClientExecutor {
         Ok(subblock_output)
     }
 
+    /// Executes the aggregation of multiple subblocks.
+    ///
+    /// When executed in the zkvm, this will verify all of the subblock proofs and perform
+    /// consistency checks between them.
+    #[allow(unused)]
     pub fn execute_aggregation<V: Variant>(
         &self,
         public_values: Vec<Vec<u8>>,
@@ -267,7 +273,7 @@ impl ClientExecutor {
         let mut block_hashes = BTreeMap::<u64, B256>::new();
         profile!("aggregate", {
             for (i, public_value) in public_values.iter().enumerate() {
-                let public_values_digest = Sha256::digest(&public_value);
+                let public_values_digest = Sha256::digest(public_value);
                 cfg_if! {
                     if #[cfg(target_os = "zkvm")] {
                         sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());

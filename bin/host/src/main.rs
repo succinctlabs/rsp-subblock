@@ -122,7 +122,6 @@ async fn main() -> eyre::Result<()> {
     let (pk, _vk) = client
         .setup(match variant {
             ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-            _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
         })
         .await;
 

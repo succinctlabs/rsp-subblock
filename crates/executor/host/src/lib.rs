@@ -114,13 +114,16 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
     /// Executes the block with the given block number and returns the client input for each
     /// subblock.
-    ///
-    /// TODO: all variants
     pub async fn execute_subblock(
         &self,
         block_number: u64,
+        variant: ChainVariant,
     ) -> Result<SubblockHostOutput, HostError> {
-        self.execute_variant_subblocks::<EthereumVariant>(block_number).await
+        match variant {
+            ChainVariant::Ethereum => {
+                self.execute_variant_subblocks::<EthereumVariant>(block_number).await
+            }
+        }
     }
 
     async fn execute_variant<V>(&self, block_number: u64) -> Result<ClientExecutorInput, HostError>

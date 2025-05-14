@@ -38,160 +38,6 @@ pub struct ClientExecutorInput {
     pub bytecodes: Vec<Bytecode>,
 }
 
-/// Input to the subblock program.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SubblockInput {
-    /// The current block (which will be executed inside the client).
-    pub current_block: Block,
-    /// The blockhashes used by the subblock.
-    ///
-    /// Right now, this is just the blockhashes used by every subblock. In the future, we can
-    /// probably shrink this down to just the blockhashes used by the current subblock.
-    pub block_hashes: BTreeMap<u64, B256>,
-    /// The bytecodes used by the subblock
-    pub bytecodes: Vec<Bytecode>,
-    /// Whether this is the first subblock (do we need to do pre-execution transactions?)
-    pub is_first_subblock: bool,
-    /// Whether this is the last subblock (do we need to do post-execution transactions?)
-    pub is_last_subblock: bool,
-    /// The starting gas used for the subblock.
-    pub starting_gas_used: u64,
-}
-
-/// Everything needed to run the subblock task e2e.
-///
-/// Necessary data for subblock stdin and agg stdin.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubblockHostOutput {
-    pub subblock_inputs: Vec<SubblockInput>,
-    pub subblock_parent_states: Vec<Vec<u8>>,
-    pub subblock_outputs: Vec<SubblockOutput>,
-    pub agg_input: AggregationInput,
-    pub agg_parent_state: Vec<u8>,
-}
-
-impl SubblockHostOutput {
-    /// Validates the output of the host executor, by running all of the subblocks natively and
-    /// checking their consistency.
-    pub fn validate(&self) -> Result<(), ClientError> {
-        let executor = crate::ClientExecutor;
-
-        for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
-            let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
-                &self.subblock_parent_states[i],
-            )
-            .unwrap();
-
-            let subblock_output = executor.execute_subblock::<EthereumVariant>(
-                subblock_input.clone(),
-                &mut subblock_parent_state,
-            )?;
-
-            if subblock_output != self.subblock_outputs[i] {
-                eprintln!(
-                    "executed output state root {:?}\n pre-generated output state root {:?}",
-                    subblock_output.output_state_root, self.subblock_outputs[i].output_state_root
-                );
-                eprintln!(
-                    "executed input state root {:?}\n pre-generated input state root {:?}",
-                    subblock_output.input_state_root, self.subblock_outputs[i].input_state_root
-                );
-                return Err(ClientError::InvalidSubblockOutput);
-            }
-        }
-        Ok(())
-        // let current_block = self.agg_input.current_block.clone();
-        // let executor_difficulty = current_block.header.difficulty;
-        // for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
-        //     let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
-        //         &self.subblock_parent_states[i],
-        //     )
-        //     .unwrap();
-
-        //     let subblock_output = self.subblock_outputs[i].clone();
-        //     let debug_subblock_input = subblock_input.clone();
-        //     let mut input = debug_subblock_input
-        //         .current_block
-        //         .with_recovered_senders()
-        //         .expect("failed to recover senders");
-        //     input.is_first_subblock = subblock_input.is_first_subblock;
-        //     input.is_last_subblock = subblock_input.is_last_subblock;
-        //     input.starting_gas_used = subblock_input.starting_gas_used;
-
-        //     tracing::debug!("is first subblock: {:?}", input.is_first_subblock);
-        //     tracing::debug!("is last subblock: {:?}", input.is_last_subblock);
-
-        //     let bytecode_by_hash =
-        //         subblock_input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-        //     let trie_db = TrieDB::new(
-        //         &subblock_parent_state,
-        //         subblock_input.block_hashes.clone().into_iter().collect(),
-        //         bytecode_by_hash,
-        //     );
-        //     let wrap_ref = WrapDatabaseRef(trie_db);
-        //     let debug_execution_output =
-        //         EthereumVariant::execute(&input, executor_difficulty, wrap_ref)?;
-        //     let receipts = debug_execution_output.receipts.clone();
-        //     let requests = debug_execution_output.requests.clone();
-        //     let outcome = ExecutionOutcome::new(
-        //         debug_execution_output.state,
-        //         Receipts::from(debug_execution_output.receipts),
-        //         current_block.header.number,
-        //         vec![debug_execution_output.requests.into()],
-        //     );
-
-        //     let mut logs_bloom = Bloom::default();
-        //     receipts.iter().for_each(|r| {
-        //         logs_bloom.accrue_bloom(&r.bloom_slow());
-        //     });
-        //     let old_state_root = subblock_parent_state.state_root();
-        //     subblock_parent_state.update(&outcome.hash_state_slow());
-        //     let debug_subblock_output = SubblockOutput {
-        //         receipts,
-        //         logs_bloom,
-        //         output_state_root: subblock_parent_state.state_root(),
-        //         input_state_root: old_state_root,
-        //         requests,
-        //     };
-
-        //     if debug_subblock_output != subblock_output {
-        //         eprintln!(
-        //             "output state root: {:?} {:?}",
-        //             debug_subblock_output.output_state_root, subblock_output.output_state_root
-        //         );
-        //         eprintln!(
-        //             "input state root: {:?} {:?}",
-        //             debug_subblock_output.input_state_root, subblock_output.input_state_root
-        //         );
-        //         return Err(ClientError::InvalidSubblockOutput);
-        //     }
-        // }
-        // Ok(())
-    }
-}
-
-/// The input for the client to execute a block and fully verify the STF (state transition
-/// function).
-///
-/// Instead of passing in the entire state, we only pass in the state roots along with merkle proofs
-/// for the storage slots that were modified and accessed.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AggregationInput {
-    /// The current block (which will be executed inside the client).
-    pub current_block: Block,
-    /// The previous block headers starting from the most recent. There must be at least one header
-    /// to provide the parent state root.
-    pub ancestor_headers: Vec<Header>,
-    /// Account bytecodes.
-    pub bytecodes: Vec<Bytecode>,
-}
-
-impl AggregationInput {
-    pub fn parent_header(&self) -> &Header {
-        &self.ancestor_headers[0]
-    }
-}
-
 impl ClientExecutorInput {
     /// Gets the immediate parent block's header.
     #[inline(always)]
@@ -232,6 +78,29 @@ impl WitnessInput for ClientExecutorInput {
     }
 }
 
+/// Input to the subblock program.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubblockInput {
+    /// The current block (which will be executed inside the client).
+    pub current_block: Block,
+    /// The blockhashes used by the subblock.
+    ///
+    /// Right now, this is just the blockhashes used by every subblock. In the future, we can
+    /// probably shrink this down to just the blockhashes used by the current subblock.
+    pub block_hashes: BTreeMap<u64, B256>,
+    /// The bytecodes used by the subblock
+    pub bytecodes: Vec<Bytecode>,
+    /// Whether this is the first subblock (do we need to do pre-execution transactions?)
+    pub is_first_subblock: bool,
+    /// Whether this is the last subblock (do we need to do post-execution transactions?)
+    pub is_last_subblock: bool,
+    /// The starting gas used for the subblock.
+    pub starting_gas_used: u64,
+}
+
+/// The committed execution output of the subblock program.
+///
+/// The subblock program also commits its `[SubblockInput]`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SubblockOutput {
     /// The new state root after executing this subblock.
@@ -260,6 +129,70 @@ impl SubblockOutput {
 
         // Add other requests to the current requests.
         self.requests.extend(other.requests);
+    }
+}
+
+/// Everything needed to run the subblock task e2e.
+///
+/// Necessary data for subblock stdin and agg stdin. Note that the subblock parent states and
+/// agg parent state are serialized with rkyv as bytes here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubblockHostOutput {
+    pub subblock_inputs: Vec<SubblockInput>,
+    pub subblock_parent_states: Vec<Vec<u8>>,
+    pub subblock_outputs: Vec<SubblockOutput>,
+    pub agg_input: AggregationInput,
+    pub agg_parent_state: Vec<u8>,
+}
+
+impl SubblockHostOutput {
+    /// Validates the output of the host executor, by running all of the subblocks natively and
+    /// checking their consistency.
+    pub fn validate(&self) -> Result<(), ClientError> {
+        let executor = crate::ClientExecutor;
+
+        for (i, subblock_input) in self.subblock_inputs.iter().enumerate() {
+            let mut subblock_parent_state = rkyv::from_bytes::<EthereumState, rkyv::rancor::Error>(
+                &self.subblock_parent_states[i],
+            )
+            .unwrap();
+
+            let subblock_output = executor.execute_subblock::<EthereumVariant>(
+                subblock_input.clone(),
+                &mut subblock_parent_state,
+            )?;
+
+            if subblock_output != self.subblock_outputs[i] {
+                eprintln!(
+                    "executed output state root {:?}\n pre-generated output state root {:?}",
+                    subblock_output.output_state_root, self.subblock_outputs[i].output_state_root
+                );
+                eprintln!(
+                    "executed input state root {:?}\n pre-generated input state root {:?}",
+                    subblock_output.input_state_root, self.subblock_outputs[i].input_state_root
+                );
+                return Err(ClientError::InvalidSubblockOutput);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The input for the client to aggregate multiple subblocks and prove their consistency.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AggregationInput {
+    /// The current block (which will be executed inside the client).
+    pub current_block: Block,
+    /// The previous block headers starting from the most recent. There must be at least one header
+    /// to provide the parent state root.
+    pub ancestor_headers: Vec<Header>,
+    /// Account bytecodes.
+    pub bytecodes: Vec<Bytecode>,
+}
+
+impl AggregationInput {
+    pub fn parent_header(&self) -> &Header {
+        &self.ancestor_headers[0]
     }
 }
 

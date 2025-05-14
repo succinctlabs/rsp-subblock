@@ -6,7 +6,7 @@
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
 use rkyv::util::AlignedVec;
-use rsp_client_executor::io::SubblockHostOutput;
+use rsp_client_executor::{io::SubblockHostOutput, ChainVariant};
 use rsp_host_executor::HostExecutor;
 use rsp_mpt::EthereumState;
 use sp1_sdk::{
@@ -77,7 +77,7 @@ async fn main() -> eyre::Result<()> {
 
             // Execute the host.
             let cache_data = host_executor
-                .execute_subblock(args.block_number)
+                .execute_subblock(args.block_number, ChainVariant::Ethereum)
                 .await
                 .expect("failed to execute host");
 
@@ -109,8 +109,7 @@ async fn main() -> eyre::Result<()> {
 
     let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
 
-    // Todo: rename
-    schedule_task(
+    schedule_subblock_execution(
         subblock_pk,
         args.block_number,
         agg_pk,
@@ -123,7 +122,7 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn schedule_task(
+async fn schedule_subblock_execution(
     subblock_pk: SP1ProvingKey,
     block_number: u64,
     agg_pk: SP1ProvingKey,
@@ -210,12 +209,6 @@ pub fn to_aggregation_stdin(
             &subblock_host_output.subblock_outputs[i],
         )
         .unwrap();
-
-        // let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
-        //     .expect("failed to serialize subblock output")
-        //     .to_vec();
-
-        // current_public_values.write_all(&serialized).unwrap();
 
         public_values.push(current_public_values);
     }
