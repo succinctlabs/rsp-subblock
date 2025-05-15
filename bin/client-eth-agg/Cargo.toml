@@ -10,7 +10,7 @@ lto = "fat"
 [dependencies]
 # workspace
 rsp-client-executor = { path = "../../crates/executor/client" }
-reth-primitives = { git = "https://github.com/succinctlabs/reth-private", branch = "yuwen/cleanup", default-features = false, features = [
+reth-primitives = { git = "https://github.com/succinctlabs/reth-private", branch = "yuwen/subblock", default-features = false, features = [
     "alloy-compat",
     "optimism",
     "std",
