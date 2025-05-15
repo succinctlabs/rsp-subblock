@@ -99,11 +99,9 @@ async fn main() -> eyre::Result<()> {
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (pk, _vk) = client
-        .setup(match variant {
-            ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-        })
-        .await;
+    let (pk, _vk) = client.setup(match variant {
+        ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
+    });
 
     // Execute the block inside the zkVM.
     let mut stdin = SP1Stdin::new();
@@ -119,7 +117,7 @@ async fn main() -> eyre::Result<()> {
         let dump_dir = dump_dir.join(format!("{}", args.block_number));
         let elf_path = dump_dir.join("basic_elf.bin");
         let stdin_path = dump_dir.join("basic_stdin.bin");
-        std::fs::write(elf_path, pk.elf.as_ref())?;
+        std::fs::write(elf_path, &pk.elf)?;
         std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
     }
 

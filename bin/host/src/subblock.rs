@@ -97,9 +97,9 @@ async fn main() -> eyre::Result<()> {
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
+    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
+    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
     schedule_subblock_execution(
         subblock_pk,
@@ -129,9 +129,9 @@ async fn schedule_subblock_execution(
 
     if let Some(dump_dir) = dump_dir.as_ref() {
         std::fs::create_dir_all(dump_dir)?;
-        std::fs::write(dump_dir.join("subblock_elf.bin"), subblock_elf.as_ref())?;
+        std::fs::write(dump_dir.join("subblock_elf.bin"), &subblock_elf)?;
         std::fs::write(dump_dir.join("subblock_vk.bin"), bincode::serialize(&subblock_vk)?)?;
-        std::fs::write(dump_dir.join("agg_elf.bin"), agg_elf.as_ref())?;
+        std::fs::write(dump_dir.join("agg_elf.bin"), &agg_elf)?;
     }
 
     let client =

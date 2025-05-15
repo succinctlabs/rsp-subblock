@@ -26,10 +26,10 @@ rsp-mpt.workspace = true
 alloy-provider.workspace = true
 
 # sp1
-sp1-sdk = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
+sp1-sdk = { version = "4.1.7" }
 
 [build-dependencies]
-sp1-build = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6" }
+sp1-build = { version = "4.1.7" }
 
 
 [[bin]]
