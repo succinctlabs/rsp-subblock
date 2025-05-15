@@ -5,12 +5,13 @@ mod utils;
 pub mod custom;
 pub mod error;
 
-use std::{borrow::BorrowMut, fmt::Display, io::Cursor};
+use std::{collections::BTreeMap, fmt::Display, io::Cursor, iter::once};
 
 use cfg_if::cfg_if;
 use custom::CustomEvmConfig;
 use error::ClientError;
 use io::{AggregationInput, ClientExecutorInput, SubblockInput, SubblockOutput, TrieDB};
+use itertools::Itertools;
 use reth_chainspec::ChainSpec;
 use reth_errors::{ConsensusError, ProviderError};
 use reth_ethereum_consensus::{
@@ -21,15 +22,12 @@ use reth_evm::execute::{
     BlockExecutionError, BlockExecutionOutput, BlockExecutorProvider, Executor,
 };
 use reth_evm_ethereum::execute::EthExecutorProvider;
-use reth_evm_optimism::OpExecutorProvider;
 use reth_execution_types::ExecutionOutcome;
-use reth_optimism_consensus::validate_block_post_execution as validate_block_post_execution_optimism;
 use reth_primitives::{
     proofs, Block, BlockWithSenders, Bloom, Header, Receipt, Receipts, Request, TransactionSigned,
 };
 use revm::{db::WrapDatabaseRef, Database};
-use revm_primitives::{address, U256};
-use rkyv::util::AlignedVec;
+use revm_primitives::{B256, U256};
 use rsp_mpt::EthereumState;
 use sha2::{Digest, Sha256};
 
@@ -87,29 +85,11 @@ pub trait Variant {
 #[derive(Debug)]
 pub struct EthereumVariant;
 
-/// Implementation for Optimism-specific execution/validation logic.
-#[derive(Debug)]
-pub struct OptimismVariant;
-
-/// Implementation for Linea-specific execution/validation logic.
-#[derive(Debug)]
-pub struct LineaVariant;
-
-/// Implementation for Sepolia-specific execution/validation logic.
-#[derive(Debug)]
-pub struct SepoliaVariant;
-
 /// EVM chain variants that implement different execution/validation rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChainVariant {
     /// Ethereum networks.
     Ethereum,
-    /// OP stack networks.
-    Optimism,
-    /// Linea networks.
-    Linea,
-    /// Testnets
-    Sepolia,
 }
 
 impl ChainVariant {
@@ -117,9 +97,6 @@ impl ChainVariant {
     pub fn chain_id(&self) -> u64 {
         match self {
             ChainVariant::Ethereum => CHAIN_ID_ETH_MAINNET,
-            ChainVariant::Optimism => CHAIN_ID_OP_MAINNET,
-            ChainVariant::Linea => CHAIN_ID_LINEA_MAINNET,
-            ChainVariant::Sepolia => CHAIN_ID_SEPOLIA,
         }
     }
 }
@@ -206,6 +183,7 @@ impl ClientExecutor {
         Ok(header)
     }
 
+    /// Executes a SubblockInput, and returns a SubblockOutput.
     pub fn execute_subblock<V>(
         &self,
         input: SubblockInput,
@@ -214,20 +192,14 @@ impl ClientExecutor {
     where
         V: Variant,
     {
-        // Initialize the database.
-        println!("cycle-tracker-start: initialize db");
-        // First deserialize the parent state, and calculate the parent state root.
-        let input_state_root = input_state.state_root();
+        let input_state_root = profile!("compute input state root", { input_state.state_root() });
 
-        println!("cycle-tracker-start: construct buffered trie db");
-        // Finally, construct the database.
-        // TODO: verify the parent block hashes????
-        let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-        let trie_db = TrieDB::new(input_state, input.block_hashes, bytecode_by_hash);
-        let wrap_ref = WrapDatabaseRef(trie_db);
-        println!("cycle-tracker-end: construct buffered trie db");
-
-        println!("cycle-tracker-end: initialize db");
+        let wrap_ref = profile!("construct trie db", {
+            // Finally, construct the database.
+            let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+            let trie_db = TrieDB::new(input_state, input.block_hashes, bytecode_by_hash);
+            WrapDatabaseRef(trie_db)
+        });
 
         // Execute the block.
         let mut executor_block_input = profile!("recover senders", {
@@ -239,12 +211,14 @@ impl ClientExecutor {
         })?;
         executor_block_input.is_first_subblock = input.is_first_subblock;
         executor_block_input.is_last_subblock = input.is_last_subblock;
+        executor_block_input.starting_gas_used = input.starting_gas_used;
+
         let executor_difficulty = input.current_block.header.difficulty;
         let executor_output = profile!("execute", {
             V::execute(&executor_block_input, executor_difficulty, wrap_ref)
         })?;
 
-        // let requests = executor_output.requests.clone();
+        let requests = executor_output.requests.clone();
         let receipts = executor_output.receipts.clone();
 
         let mut logs_bloom = Bloom::default();
@@ -269,61 +243,123 @@ impl ClientExecutor {
             input_state.update(&hash_state);
             let output_state_root = input_state.state_root();
 
-            SubblockOutput {
-                output_state_root,
-                logs_bloom,
-                receipts,
-                input_state_root,
-                // requests,
-            }
+            SubblockOutput { output_state_root, logs_bloom, receipts, input_state_root, requests }
         });
 
         Ok(subblock_output)
     }
 
+    /// Executes the aggregation of multiple subblocks.
+    ///
+    /// When executed in the zkvm, this will verify all of the subblock proofs and perform
+    /// consistency checks between them.
+    #[allow(unused)]
     pub fn execute_aggregation<V: Variant>(
         &self,
         public_values: Vec<Vec<u8>>,
         vkey: [u32; 8],
         mut aggregation_input: AggregationInput,
-        parent_state: EthereumState,
+        parent_state_root: B256,
     ) -> Result<Header, ClientError> {
-        // TODO: pass in the parent state root as plaintext should be fine.
         let mut cumulative_state_diff =
-            SubblockOutput { output_state_root: parent_state.state_root(), ..Default::default() };
+            SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
+        let mut block_hashes = BTreeMap::<u64, B256>::new();
         profile!("aggregate", {
-            for public_value in public_values {
-                let public_values_digest = Sha256::digest(&public_value);
+            for (i, public_value) in public_values.iter().enumerate() {
+                let public_values_digest = Sha256::digest(public_value);
                 cfg_if! {
                     if #[cfg(target_os = "zkvm")] {
                         sp1_zkvm::lib::verify::verify_sp1_proof(&vkey, &public_values_digest.into());
                     }
                 }
-                println!("cycle-tracker-start: deserialize subblock transactions");
+                println!("cycle-tracker-start: deserialize subblock input");
                 let mut reader = Cursor::new(&public_value);
-                let subblock_transactions: Vec<TransactionSigned> =
-                    bincode::deserialize_from(&mut reader).unwrap();
+                let subblock_input: SubblockInput = bincode::deserialize_from(&mut reader).unwrap();
+                println!("cycle-tracker-end: deserialize subblock input");
 
-                println!("cycle-tracker-end: deserialize subblock transactions");
+                // Every subblock should have at least one block hash: the immediate parent block hash.
+                // So an empty block_hashes indicates that this is the first subblock.
+                if i == 0 && block_hashes.is_empty() {
+                    block_hashes = subblock_input.block_hashes;
+                } else {
+                    assert_eq!(block_hashes, subblock_input.block_hashes);
+                }
+
+                // Check that the starting gas used is the same as the last cumulative gas used.
+                assert_eq!(
+                    subblock_input.starting_gas_used,
+                    cumulative_state_diff
+                        .receipts
+                        .last()
+                        .map(|r| r.cumulative_gas_used)
+                        .unwrap_or(0)
+                );
+
+                // Consistency checks on the subblock input's first/last subblock flags.
+                if i == 0 {
+                    assert!(subblock_input.is_first_subblock);
+                }
+                if i == public_values.len() - 1 {
+                    assert!(subblock_input.is_last_subblock);
+                }
+                if i > 0 && i < public_values.len() - 1 {
+                    assert!(!subblock_input.is_first_subblock);
+                    assert!(!subblock_input.is_last_subblock);
+                }
+
+                // Check that the subblock header, ommers, withdrawals, and requests are the same as
+                // the main block.
+                assert_eq!(
+                    subblock_input.current_block.header,
+                    aggregation_input.current_block.header
+                );
+                assert_eq!(
+                    subblock_input.current_block.ommers,
+                    aggregation_input.current_block.ommers
+                );
+                assert_eq!(
+                    subblock_input.current_block.withdrawals,
+                    aggregation_input.current_block.withdrawals
+                );
+                assert_eq!(
+                    subblock_input.current_block.requests,
+                    aggregation_input.current_block.requests
+                );
                 println!("cycle-tracker-start: deserialize subblock output");
 
-                let mut aligned_vec = AlignedVec::<16>::with_capacity(public_value.len());
-                aligned_vec.extend_from_reader(&mut reader).unwrap();
                 let subblock_output: SubblockOutput =
-                    rkyv::from_bytes::<SubblockOutput, rkyv::rancor::Error>(&aligned_vec).unwrap();
+                    bincode::deserialize_from(&mut reader).unwrap();
                 println!("cycle-tracker-end: deserialize subblock output");
 
                 println!("cycle-tracker-start: extend state");
-                // Check that the subblock's input state diff matches the cumulative state diff.
+
+                // Accumulate subblock's output into the cumulative state diff.
                 // This function also contains consistency checks between the cumulative state diff
                 // and the subblock output.
                 cumulative_state_diff.extend(subblock_output);
 
                 // Also add this subblock's transaction body to the transaction body.
-                transaction_body.extend(subblock_transactions);
+                transaction_body.extend(subblock_input.current_block.body);
                 println!("cycle-tracker-end: extend state");
             }
+        });
+
+        profile!("verify block hashes", {
+            let mut reconstructed_block_hashes: BTreeMap<u64, B256> = BTreeMap::new();
+            for (child_header, parent_header) in once(&aggregation_input.current_block.header)
+                .chain(aggregation_input.ancestor_headers.iter())
+                .tuple_windows()
+            {
+                assert!(parent_header.number == child_header.number - 1);
+
+                let parent_header_hash = parent_header.hash_slow();
+                assert_eq!(parent_header_hash, child_header.parent_hash);
+
+                reconstructed_block_hashes.insert(parent_header.number, parent_header_hash);
+            }
+
+            assert_eq!(reconstructed_block_hashes, block_hashes);
         });
 
         // Check that the subblock transactions match the main block transactions.
@@ -333,12 +369,16 @@ impl ClientExecutor {
         );
 
         profile!("validate subblock aggregation", {
+            // Check that the accumulated logs bloom is the same as the main block logs bloom.
+            assert_eq!(
+                cumulative_state_diff.logs_bloom,
+                aggregation_input.current_block.header.logs_bloom
+            );
             V::validate_subblock_aggregation(
                 &aggregation_input.current_block.header,
                 &V::spec(),
                 &cumulative_state_diff.receipts,
-                // &aggregated_output.requests,
-                &Vec::new(),
+                &cumulative_state_diff.requests,
             )
             .expect("failed to validate subblock aggregation")
         });
@@ -354,7 +394,7 @@ impl ClientExecutor {
 
         // Derive the block header.
         //
-        // Note: the receipts root and gas used are verified by `validate_block_post_execution`.
+        // Note: the receipts root and gas used are verified by `validate_subblock_aggregation`.
         let mut header = aggregation_input.current_block.header.clone();
         header.parent_hash = aggregation_input.parent_header().hash_slow();
         header.ommers_hash = proofs::calculate_ommers_root(&aggregation_input.current_block.ommers);
@@ -415,117 +455,5 @@ impl Variant for EthereumVariant {
         requests: &[Request],
     ) -> Result<(), ConsensusError> {
         validate_subblock_post_execution_ethereum(header, chain_spec, receipts, requests)
-    }
-}
-
-impl Variant for OptimismVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::op_mainnet()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        OpExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Optimism),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        _requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_optimism(block, chain_spec, receipts)
-    }
-}
-
-impl Variant for LineaVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::linea_mainnet()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        EthExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Linea),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_ethereum(block, chain_spec, receipts, requests)
-    }
-
-    fn pre_process_block(block: &Block) -> Block {
-        // Linea network uses clique consensus, which is not implemented in reth.
-        // The main difference for the execution part is the block beneficiary:
-        // reth will credit the block reward to the beneficiary address (coinbase)
-        // whereas in clique, the block reward is credited to the signer.
-
-        // We extract the clique beneficiary address from the genesis extra data.
-        // - vanity: 32 bytes
-        // - address: 20 bytes
-        // - seal: 65 bytes
-        // we extract the address from the 32nd to 52nd byte.
-        let addr = address!("8f81e2e3f8b46467523463835f965ffe476e1c9e");
-
-        // We hijack the beneficiary address here to match the clique consensus.
-        let mut block = block.clone();
-        block.header.borrow_mut().beneficiary = addr;
-        block
-    }
-}
-
-impl Variant for SepoliaVariant {
-    fn spec() -> ChainSpec {
-        rsp_primitives::chain_spec::sepolia()
-    }
-
-    fn execute<DB>(
-        executor_block_input: &BlockWithSenders,
-        executor_difficulty: U256,
-        cache_db: DB,
-    ) -> Result<BlockExecutionOutput<Receipt>, BlockExecutionError>
-    where
-        DB: Database<Error: Into<ProviderError> + Display>,
-    {
-        EthExecutorProvider::new(
-            Self::spec().into(),
-            CustomEvmConfig::from_variant(ChainVariant::Ethereum),
-        )
-        .executor(cache_db)
-        .execute((executor_block_input, executor_difficulty).into())
-    }
-
-    fn validate_block_post_execution(
-        block: &BlockWithSenders,
-        chain_spec: &ChainSpec,
-        receipts: &[Receipt],
-        requests: &[Request],
-    ) -> Result<(), ConsensusError> {
-        validate_block_post_execution_ethereum(block, chain_spec, receipts, requests)
     }
 }

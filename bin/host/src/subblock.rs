@@ -1,21 +1,22 @@
-//! Serial subblock execution. Use this one for debugging.
+//! Subblock executor.
+//!
+//! This is a standalone program that can be used to execute a subblock, and optionally dump the
+//! elf/stdin pairs to a directory.
 
 use alloy_provider::ReqwestProvider;
-use api2::conn::ClusterClientV2;
 use clap::Parser;
-use reth_primitives::B256;
-use rsp_client_executor::io::SubblockHostOutput;
+use rsp_client_executor::{io::SubblockHostOutput, ChainVariant};
 use rsp_host_executor::HostExecutor;
-use sp1_sdk::{include_elf, HashableKey, ProverClient, SP1Proof, SP1Stdin};
-use sp1_worker::artifact::ArtifactType;
-use sp1_worker::redis::RedisArtifactClient;
+use sp1_sdk::{
+    include_elf, HashableKey, Prover, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
+};
 use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
 mod cli;
-use cli::{schedule_controller, upload_artifact, ProviderArgs};
+use cli::ProviderArgs;
 
 /// The arguments for the host executable.
 #[derive(Debug, Clone, Parser)]
@@ -28,26 +29,19 @@ struct HostArgs {
     /// Whether to pre-execute the block.
     #[clap(long)]
     execute: bool,
+    /// Where to dump the elf and stdin for the files.
+    #[clap(long)]
+    dump_dir: Option<PathBuf>,
     /// Optional path to the directory containing cached client input. A new cache file will be
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
-    /// Optional path to the proof cache
-    #[clap(long)]
-    proof_cache_dir: Option<PathBuf>,
-    /// The path to the CSV file containing the execution data.
-    #[clap(long, default_value = "report.csv")]
-    report_path: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     // Intialize the environment variables.
     dotenv::dotenv().ok();
-
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
 
     // Initialize the logger.
     tracing_subscriber::registry().with(fmt::layer()).with(EnvFilter::from_default_env()).init();
@@ -64,13 +58,7 @@ async fn main() -> eyre::Result<()> {
     )?;
 
     let client_input = match (cache_data, provider_config.rpc_url) {
-        (Some(cache_data), _) => {
-            #[cfg(debug_assertions)]
-            {
-                cache_data.validate()?;
-            }
-            cache_data
-        }
+        (Some(cache_data), _) => cache_data,
         (None, Some(rpc_url)) => {
             // Cache not found but we have RPC
             // Setup the provider.
@@ -81,7 +69,7 @@ async fn main() -> eyre::Result<()> {
 
             // Execute the host.
             let cache_data = host_executor
-                .execute_subblock(args.block_number)
+                .execute_subblock(args.block_number, ChainVariant::Ethereum)
                 .await
                 .expect("failed to execute host");
 
@@ -105,107 +93,135 @@ async fn main() -> eyre::Result<()> {
     };
 
     // Generate the proof.
-    let client = ProverClient::from_env();
-
-    let addr = std::env::var("CLUSTER_V2_RPC").expect("CLUSTER_V2_RPC must be set");
-    let mut cluster_client = ClusterClientV2::connect(addr.clone(), "rsp".to_string()).await?;
-    let redis_artifact_client = RedisArtifactClient::new(
-        std::env::var("REDIS_NODES")
-            .expect("REDIS_NODES is not set")
-            .split(',')
-            .map(|s| s.to_string())
-            .collect(),
-        std::env::var("REDIS_POOL_MAX_SIZE").unwrap_or("16".to_string()).parse().unwrap(),
-    );
+    let client =
+        tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (subblock_pk, subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
+    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let elf_artifact = upload_artifact(
-        &redis_artifact_client,
-        "subblock_elf",
-        &subblock_pk.elf,
-        ArtifactType::Program,
+    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
+
+    schedule_subblock_execution(
+        subblock_pk,
+        args.block_number,
+        agg_pk,
+        client_input,
+        args.execute,
+        args.dump_dir,
     )
     .await?;
 
-    let mut public_values = Vec::new();
-    let mut agg_stdin = SP1Stdin::new();
-    for i in 0..client_input.subblock_inputs.len() {
-        let input = &client_input.subblock_inputs[i];
-        let parent_state = &client_input.subblock_parent_states[i];
+    Ok(())
+}
 
-        // Execute the block inside the zkVM.
+async fn schedule_subblock_execution(
+    subblock_pk: SP1ProvingKey,
+    block_number: u64,
+    agg_pk: SP1ProvingKey,
+    inputs: SubblockHostOutput,
+    execute: bool,
+    dump_dir: Option<PathBuf>,
+) -> eyre::Result<()> {
+    let (subblock_elf, subblock_vk) = (subblock_pk.elf, subblock_pk.vk);
+    let agg_elf = agg_pk.elf;
+
+    let dump_dir = dump_dir.map(|d| d.join(format!("{}", block_number)));
+
+    if let Some(dump_dir) = dump_dir.as_ref() {
+        std::fs::create_dir_all(dump_dir)?;
+        std::fs::write(dump_dir.join("subblock_elf.bin"), &subblock_elf)?;
+        std::fs::write(dump_dir.join("subblock_vk.bin"), bincode::serialize(&subblock_vk)?)?;
+        std::fs::write(dump_dir.join("agg_elf.bin"), &agg_elf)?;
+    }
+
+    let client =
+        tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
+
+    let aggregation_stdin = to_aggregation_stdin(inputs.clone(), &subblock_vk);
+    if let Some(dump_dir) = dump_dir.as_ref() {
+        let stdin_path = dump_dir.join("agg_stdin.bin");
+        std::fs::write(stdin_path, bincode::serialize(&aggregation_stdin)?)?;
+    }
+
+    for i in 0..inputs.subblock_inputs.len() {
+        let input = &inputs.subblock_inputs[i];
+        let parent_state = &inputs.subblock_parent_states[i];
+
         let mut stdin = SP1Stdin::new();
-        stdin.write(&input);
+        stdin.write(input);
         stdin.write_vec(parent_state.clone());
 
-        if args.execute {
-            let (_public_values, execution_report) =
-                client.execute(&subblock_pk.elf, &stdin).run().unwrap();
-            println!(
-                "total instructions for subblock: {}",
-                execution_report.total_instruction_count()
-            );
-        }
-
-        // Write the elf and stdin to the dump directory.
-        if let Ok(dump_dir) = std::env::var("DUMP_DIR") {
-            let dump_dir = PathBuf::from(dump_dir);
-            let elf_path = dump_dir.join(format!("subblock_elf_{}.bin", i));
-            let stdin_path = dump_dir.join(format!("subblock_stdin_{}.bin", i));
-            std::fs::write(elf_path, &subblock_pk.elf)?;
+        // Save the elf/stdin pair to the dump directory.
+        if let Some(dump_dir) = dump_dir.as_ref() {
+            let stdin_dir_path = dump_dir.join("subblock_stdins");
+            std::fs::create_dir_all(&stdin_dir_path)?;
+            let stdin_path = stdin_dir_path.join(format!("{}.bin", i));
             std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
         }
 
-        // Generate the subblock proof.
-        let proof = schedule_controller(
-            elf_artifact.clone(),
-            stdin,
-            &mut cluster_client,
-            &redis_artifact_client,
-            args.execute,
-        )
-        .await?;
-        // Write the output to the public values.
-        public_values.push(proof.public_values.clone());
-
-        let SP1Proof::Compressed(proof) = proof.proof else { panic!() };
-        agg_stdin.write_proof(*proof, subblock_vk.vk.clone());
-    }
-    println!("subblock proofs generated");
-
-    let (pk, agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
-
-    let agg_elf_artifact =
-        upload_artifact(&redis_artifact_client, "agg_elf", &pk.elf, ArtifactType::Program).await?;
-
-    let public_values = public_values.iter().map(|p| p.to_vec()).collect::<Vec<_>>();
-    agg_stdin.write::<Vec<Vec<u8>>>(&public_values);
-    agg_stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
-    agg_stdin.write(&client_input.agg_input);
-    agg_stdin.write_vec(client_input.agg_parent_state);
-
-    if args.execute {
-        let (_public_values, execution_report) = client.execute(&pk.elf, &agg_stdin).run().unwrap();
-        println!("total instructions for agg: {}", execution_report.total_instruction_count());
+        if execute {
+            let (_public_values, report) = client.execute(&subblock_elf, &stdin).run().unwrap();
+            let subblock_instruction_count = report.total_instruction_count();
+            tracing::info!("Subblock {} instruction count: {}", i, subblock_instruction_count);
+        }
     }
 
-    let mut proof = schedule_controller(
-        agg_elf_artifact.clone(),
-        agg_stdin,
-        &mut cluster_client,
-        &redis_artifact_client,
-        args.execute,
-    )
-    .await?;
-
-    client.verify(&proof, &agg_vk)?;
-
-    let block_hash = proof.public_values.read::<B256>();
-    println!("Block hash: {}", block_hash);
+    if execute {
+        // Execute the aggregation program with deferred proof verification off, since we don't have the proof yet.
+        let (_public_values, report) = client
+            .execute(&agg_elf, &aggregation_stdin)
+            .deferred_proof_verification(false)
+            .run()
+            .unwrap();
+        let agg_instruction_count = report.total_instruction_count();
+        tracing::info!("Aggregation program instruction count: {}", agg_instruction_count);
+    }
 
     Ok(())
+}
+
+/// Constructs the aggregation stdin, minus the subblock proofs.
+pub fn to_aggregation_stdin(
+    subblock_host_output: SubblockHostOutput,
+    subblock_vk: &SP1VerifyingKey,
+) -> SP1Stdin {
+    let mut stdin = SP1Stdin::new();
+
+    assert_eq!(
+        subblock_host_output.subblock_inputs.len(),
+        subblock_host_output.subblock_outputs.len()
+    );
+    let mut public_values = Vec::new();
+    for i in 0..subblock_host_output.subblock_inputs.len() {
+        let mut current_public_values = Vec::new();
+        let input = &subblock_host_output.subblock_inputs[i];
+        bincode::serialize_into(&mut current_public_values, input).unwrap();
+        bincode::serialize_into(
+            &mut current_public_values,
+            &subblock_host_output.subblock_outputs[i],
+        )
+        .unwrap();
+        public_values.push(current_public_values);
+    }
+
+    tracing::info!(
+        "Public values size in bytes: {}",
+        public_values.iter().map(|v| v.len()).sum::<usize>()
+    );
+
+    // // Deserialize the parent state and compute the root.
+    // let mut aligned_vec = AlignedVec::<16>::new();
+    // let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
+    // aligned_vec.extend_from_reader(&mut reader).unwrap();
+    // let parent_state =
+    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
+    // let parent_state_root = parent_state.state_root();
+
+    stdin.write::<Vec<Vec<u8>>>(&public_values);
+    stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
+    stdin.write(&subblock_host_output.agg_input);
+    stdin.write(&subblock_host_output.agg_input.parent_header().state_root);
+    stdin
 }
 
 fn try_load_input_from_cache(
@@ -214,14 +230,28 @@ fn try_load_input_from_cache(
     block_number: u64,
 ) -> eyre::Result<Option<SubblockHostOutput>> {
     Ok(if let Some(cache_dir) = cache_dir {
-        let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
+        let cache_path =
+            cache_dir.join(format!("subblock-input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
-            // TODO: prune the cache if invalid instead
-            let mut cache_file = std::fs::File::open(cache_path)?;
-            let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
-
-            Some(cache_data)
+            // Try to open and deserialize the cache file, delete it if there's an error
+            match (|| -> eyre::Result<SubblockHostOutput> {
+                let mut cache_file = std::fs::File::open(&cache_path)?;
+                let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
+                Ok(cache_data)
+            })() {
+                Ok(cache_data) => Some(cache_data),
+                Err(err) => {
+                    tracing::warn!("Failed to load cache file {}: {}", cache_path.display(), err);
+                    // Delete the invalid cache file
+                    if let Err(delete_err) = std::fs::remove_file(&cache_path) {
+                        tracing::warn!("Failed to delete invalid cache file: {}", delete_err);
+                    } else {
+                        tracing::info!("Deleted invalid cache file: {}", cache_path.display());
+                    }
+                    None
+                }
+            }
         } else {
             None
         }

@@ -2,8 +2,7 @@ mod error;
 pub use error::Error as HostError;
 use reth_trie::AccountProof;
 use std::{
-    collections::{BTreeSet, HashMap},
-    future::IntoFuture,
+    collections::{BTreeMap, BTreeSet, HashMap},
     marker::PhantomData,
     sync::Arc,
     time::Duration,
@@ -20,13 +19,12 @@ use rsp_client_executor::{
     io::{
         AggregationInput, ClientExecutorInput, SubblockHostOutput, SubblockInput, SubblockOutput,
     },
-    ChainVariant, EthereumVariant, LineaVariant, OptimismVariant, SepoliaVariant, Variant,
+    ChainVariant, EthereumVariant, Variant,
 };
 use rsp_mpt::EthereumState;
 use rsp_primitives::account_proof::eip1186_proof_to_account_proof;
 use rsp_rpc_db::RpcDb;
-use tokio::task::JoinSet;
-use tokio::time::sleep;
+use tokio::{task::JoinSet, time::sleep};
 
 /// The maximum number of times to retry fetching a proof.
 const MAX_PROOF_RETRIES: u32 = 3;
@@ -42,7 +40,7 @@ pub struct HostExecutor<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone
     pub phantom: PhantomData<T>,
 }
 lazy_static::lazy_static! {
-    /// Number of transactions per subblock.
+    /// Amount of gas used per subblock.
     pub static ref SUBBLOCK_GAS_LIMIT: u64 = std::env::var("SUBBLOCK_GAS_LIMIT")
         .map(|s| s.parse().unwrap())
         .unwrap_or(1_000_000);
@@ -111,21 +109,21 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
     ) -> Result<ClientExecutorInput, HostError> {
         match variant {
             ChainVariant::Ethereum => self.execute_variant::<EthereumVariant>(block_number).await,
-            ChainVariant::Optimism => self.execute_variant::<OptimismVariant>(block_number).await,
-            ChainVariant::Linea => self.execute_variant::<LineaVariant>(block_number).await,
-            ChainVariant::Sepolia => self.execute_variant::<SepoliaVariant>(block_number).await,
         }
     }
 
     /// Executes the block with the given block number and returns the client input for each
     /// subblock.
-    ///
-    /// TODO: all variants
     pub async fn execute_subblock(
         &self,
         block_number: u64,
+        variant: ChainVariant,
     ) -> Result<SubblockHostOutput, HostError> {
-        self.execute_variant_subblocks::<EthereumVariant>(block_number).await
+        match variant {
+            ChainVariant::Ethereum => {
+                self.execute_variant_subblocks::<EthereumVariant>(block_number).await
+            }
+        }
     }
 
     async fn execute_variant<V>(&self, block_number: u64) -> Result<ClientExecutorInput, HostError>
@@ -361,39 +359,55 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
 
         let executor_difficulty = current_block.header.difficulty;
 
+        // These accumulate across multiple subblocks.
         let mut cumulative_executor_outcomes = ExecutionOutcome::default();
         let mut cumulative_state_requests = HashMap::new();
 
+        // These store individual state requests, executor outcomes, and state diffs for each subblock.
         let mut all_state_requests = Vec::new();
         let mut all_executor_outcomes = Vec::new();
+        let mut state_diffs = Vec::new();
 
+        // The number of transactions completed so far.
         let mut num_transactions_completed: u64 = 0;
 
-        let mut subblock_inputs = Vec::new();
+        // The amount of gas used so far.
+        let mut cumulative_gas_used = 0;
+
+        // The accumulated logs bloom, across subblocks.
         let mut global_logs_bloom = Bloom::default();
 
+        // These store the inputs, outputs, and parent states for each subblock.
+        // These are eventually fed into the zkvm.
+        let mut subblock_inputs = Vec::new();
         let mut subblock_outputs = Vec::new();
         let mut subblock_parent_states = Vec::new();
 
-        let mut state_diffs = Vec::new();
-
-        while current_block.body.len() as u64 > num_transactions_completed {
+        loop {
             tracing::info!("executing subblock");
             let cache_db = CacheDB::new(&rpc_db);
+
+            // Slice the block to only include the transactions that have not been executed yet.
             let mut subblock_input = executor_block_input.clone();
             subblock_input.body =
                 subblock_input.body[num_transactions_completed as usize..].to_vec();
             subblock_input.senders =
                 subblock_input.senders[num_transactions_completed as usize..].to_vec();
 
+            // Set the subblock configuration. In the host, we set `subblock_gas_limit` to the
+            // `SUBBLOCK_GAS_LIMIT` environment variable. Then, even though many transactions may
+            // be included in the executor input, the subblock will only execute up to the
+            // `subblock_gas_limit`.
             let is_first_subblock = num_transactions_completed == 0;
             subblock_input.is_first_subblock = is_first_subblock;
             subblock_input.is_last_subblock = false;
-            subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT;
+            subblock_input.subblock_gas_limit = *SUBBLOCK_GAS_LIMIT + cumulative_gas_used;
+            subblock_input.starting_gas_used = cumulative_gas_used;
+            let starting_gas_used = cumulative_gas_used;
 
             tracing::info!("num transactions left: {}", subblock_input.body.len());
 
-            // This looks suspiciously normal... it's because I put all the subblock config in the BlockWithSenders
+            // Execute the subblock.
             let subblock_output = V::execute(&subblock_input, executor_difficulty, cache_db)?;
 
             let num_executed_transactions = subblock_output.receipts.len();
@@ -415,9 +429,13 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             global_logs_bloom.accrue_bloom(&logs_bloom);
 
             // Using the diffs from the bundle, update the RPC DB.
+            // This way, the next subblock will see the state changes from the current subblock.
             rpc_db.update_state_diffs(&subblock_output.state);
 
+            // Update the cumulative gas used.
             let receipts = subblock_output.receipts.clone();
+            cumulative_gas_used +=
+                receipts.last().map(|r| r.cumulative_gas_used - starting_gas_used).unwrap_or(0);
 
             // Convert the output to an execution outcome.
             let executor_outcome = ExecutionOutcome::new(
@@ -426,39 +444,39 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 current_block.header.number,
                 vec![subblock_output.requests.into()],
             );
-
             all_executor_outcomes.push(executor_outcome.clone());
 
             // Save the subblock's `HashedPostState` for debugging.
             let target_post_state = executor_outcome.hash_state_slow();
-
             state_diffs.push(target_post_state);
 
+            // Initialize and set part of the subblock output. The rest will be set later.
             let subblock_output = SubblockOutput {
                 receipts,
                 logs_bloom,
                 output_state_root: B256::default(),
                 input_state_root: B256::default(),
+                requests: vec![],
             };
             subblock_outputs.push(subblock_output);
 
             // Accumulate this subblock's `ExecutionOutcome` into `cumulative_executor_outcomes`.
             cumulative_executor_outcomes.extend(executor_outcome);
 
-            // Construct a sparse parent state from the subblock's state requests. The subblock will
-            // read from this sparse trie.
+            // Record the state requests for this subblock.
             let subblock_state_requests = rpc_db.get_state_requests();
+
             // Merge the state requests from the subblock into `cumulative_state_requests`.
             merge_state_requests(&mut cumulative_state_requests, &subblock_state_requests);
-
             all_state_requests.push(subblock_state_requests);
 
             let mut subblock_input = SubblockInput {
                 current_block: V::pre_process_block(&current_block),
-                block_hashes: HashMap::new(),
+                block_hashes: BTreeMap::new(),
                 bytecodes: rpc_db.get_bytecodes(),
                 is_first_subblock,
                 is_last_subblock,
+                starting_gas_used,
             };
 
             // Slice the correct transactions for this subblock
@@ -466,23 +484,16 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 [num_transactions_completed as usize..upper as usize]
                 .to_vec();
 
-            // Advance subblock
+            // Advance subblock.
             num_transactions_completed = upper;
             rpc_db.advance_subblock();
 
             subblock_inputs.push(subblock_input);
-        }
 
-        // Commented this out for now, since gas used won't line up.
-        // need to check this at the end.
-        // Validate the block post execution.
-        // tracing::info!("validating the block post execution");
-        // V::validate_block_post_execution(
-        //     &subblock_input,
-        //     &spec,
-        //     &subblock_output.receipts,
-        //     &subblock_output.requests,
-        // )?;
+            if num_transactions_completed >= current_block.body.len() as u64 {
+                break;
+            }
+        }
 
         // Build parent state from modified keys and used keys from this subblock
         let mut before_storage_proofs = Vec::new();
@@ -581,7 +592,7 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
         // Fetch the parent headers needed to constrain the BLOCKHASH opcode.
         let oldest_ancestor = *rpc_db.oldest_ancestor.borrow();
         let mut ancestor_headers = vec![];
-        let mut block_hashes = HashMap::new();
+        let mut block_hashes = BTreeMap::new();
         tracing::info!("fetching {} ancestor headers", block_number - oldest_ancestor);
         for height in (oldest_ancestor..=(block_number - 1)).rev() {
             let block = self
@@ -599,9 +610,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             ancestor_headers,
             bytecodes: rpc_db.get_bytecodes(),
         };
-
-        let parent_state_bytes =
-            rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
 
         let mut big_state = parent_state.clone();
         for i in 0..subblock_inputs.len() {
@@ -632,14 +640,32 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
                 touched_state.insert(keccak256(address), keys);
             }
 
+            // Generate the subblock parent state by taking the state diff of the subblock and all
+            // touched addresses, and then pruning the big state.
             let mut subblock_parent_state = big_state.clone();
+
+            let serialized_size =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
             let prev_root = subblock_parent_state.state_root();
-            subblock_parent_state.prune(&touched_state);
+
+            subblock_parent_state.prune(&state_diffs[i], &touched_state);
+
+            // Assert that pruning did not change the state root.
             let new_root = subblock_parent_state.state_root();
             assert_eq!(prev_root, new_root);
+
+            let new_serialized_size =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().len();
+            tracing::info!(
+                "Pruned state compression ratio: {}",
+                new_serialized_size as f64 / serialized_size as f64
+            );
             subblock_parent_states.push(
                 rkyv::to_bytes::<rkyv::rancor::Error>(&subblock_parent_state).unwrap().to_vec(),
             );
+
+            // Update the big state with the state diff of this subblock, and set the fields of this
+            // subblock's input/output accordingly.
             big_state.update(&state_diffs[i]);
             let output_root = big_state.state_root();
 
@@ -655,7 +681,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             subblock_parent_states,
             subblock_outputs,
             agg_input: aggregation_input,
-            agg_parent_state: parent_state_bytes,
         };
 
         #[cfg(debug_assertions)]
