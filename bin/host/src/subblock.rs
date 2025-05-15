@@ -5,17 +5,12 @@
 
 use alloy_provider::ReqwestProvider;
 use clap::Parser;
-use rkyv::util::AlignedVec;
-use rsp_client_executor::io::SubblockHostOutput;
+use rsp_client_executor::{io::SubblockHostOutput, ChainVariant};
 use rsp_host_executor::HostExecutor;
-use rsp_mpt::EthereumState;
 use sp1_sdk::{
     include_elf, HashableKey, Prover, ProverClient, SP1ProvingKey, SP1Stdin, SP1VerifyingKey,
 };
-use std::{
-    io::{Cursor, Write},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 use tracing_subscriber::{
     filter::EnvFilter, fmt, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
@@ -41,12 +36,6 @@ struct HostArgs {
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
-    /// Optional path to the proof cache
-    #[clap(long)]
-    proof_cache_dir: Option<PathBuf>,
-    /// The path to the CSV file containing the execution data.
-    #[clap(long, default_value = "report.csv")]
-    report_path: PathBuf,
 }
 
 #[tokio::main]
@@ -80,7 +69,7 @@ async fn main() -> eyre::Result<()> {
 
             // Execute the host.
             let cache_data = host_executor
-                .execute_subblock(args.block_number)
+                .execute_subblock(args.block_number, ChainVariant::Ethereum)
                 .await
                 .expect("failed to execute host");
 
@@ -108,12 +97,11 @@ async fn main() -> eyre::Result<()> {
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock")).await;
+    let (subblock_pk, _subblock_vk) = client.setup(include_elf!("rsp-client-eth-subblock"));
 
-    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg")).await;
+    let (agg_pk, _agg_vk) = client.setup(include_elf!("rsp-client-eth-agg"));
 
-    // Todo: rename
-    schedule_task(
+    schedule_subblock_execution(
         subblock_pk,
         args.block_number,
         agg_pk,
@@ -126,7 +114,7 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn schedule_task(
+async fn schedule_subblock_execution(
     subblock_pk: SP1ProvingKey,
     block_number: u64,
     agg_pk: SP1ProvingKey,
@@ -141,9 +129,9 @@ async fn schedule_task(
 
     if let Some(dump_dir) = dump_dir.as_ref() {
         std::fs::create_dir_all(dump_dir)?;
-        std::fs::write(dump_dir.join("subblock_elf.bin"), subblock_elf.as_ref())?;
+        std::fs::write(dump_dir.join("subblock_elf.bin"), &subblock_elf)?;
         std::fs::write(dump_dir.join("subblock_vk.bin"), bincode::serialize(&subblock_vk)?)?;
-        std::fs::write(dump_dir.join("agg_elf.bin"), agg_elf.as_ref())?;
+        std::fs::write(dump_dir.join("agg_elf.bin"), &agg_elf)?;
     }
 
     let client =
@@ -192,7 +180,7 @@ async fn schedule_task(
     Ok(())
 }
 
-/// Constructs the aggregation stdin, sans the subblock proofs.
+/// Constructs the aggregation stdin, minus the subblock proofs.
 pub fn to_aggregation_stdin(
     subblock_host_output: SubblockHostOutput,
     subblock_vk: &SP1VerifyingKey,
@@ -208,27 +196,31 @@ pub fn to_aggregation_stdin(
         let mut current_public_values = Vec::new();
         let input = &subblock_host_output.subblock_inputs[i];
         bincode::serialize_into(&mut current_public_values, input).unwrap();
-
-        let serialized = bincode::serialize(&subblock_host_output.subblock_outputs[i])
-            .expect("failed to serialize subblock output")
-            .to_vec();
-
-        current_public_values.write_all(&serialized).unwrap();
-
+        bincode::serialize_into(
+            &mut current_public_values,
+            &subblock_host_output.subblock_outputs[i],
+        )
+        .unwrap();
         public_values.push(current_public_values);
     }
 
-    let mut aligned_vec = AlignedVec::<16>::new();
-    let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
-    aligned_vec.extend_from_reader(&mut reader).unwrap();
-    let parent_state =
-        rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
-    let parent_state_root = parent_state.state_root();
+    tracing::info!(
+        "Public values size in bytes: {}",
+        public_values.iter().map(|v| v.len()).sum::<usize>()
+    );
+
+    // // Deserialize the parent state and compute the root.
+    // let mut aligned_vec = AlignedVec::<16>::new();
+    // let mut reader = Cursor::new(&subblock_host_output.agg_parent_state);
+    // aligned_vec.extend_from_reader(&mut reader).unwrap();
+    // let parent_state =
+    //     rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned_vec).unwrap();
+    // let parent_state_root = parent_state.state_root();
 
     stdin.write::<Vec<Vec<u8>>>(&public_values);
     stdin.write::<[u32; 8]>(&subblock_vk.hash_u32());
     stdin.write(&subblock_host_output.agg_input);
-    stdin.write(&parent_state_root);
+    stdin.write(&subblock_host_output.agg_input.parent_header().state_root);
     stdin
 }
 
@@ -242,11 +234,24 @@ fn try_load_input_from_cache(
             cache_dir.join(format!("subblock-input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
-            // TODO: prune the cache if invalid instead
-            let mut cache_file = std::fs::File::open(cache_path)?;
-            let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
-
-            Some(cache_data)
+            // Try to open and deserialize the cache file, delete it if there's an error
+            match (|| -> eyre::Result<SubblockHostOutput> {
+                let mut cache_file = std::fs::File::open(&cache_path)?;
+                let cache_data: SubblockHostOutput = bincode::deserialize_from(&mut cache_file)?;
+                Ok(cache_data)
+            })() {
+                Ok(cache_data) => Some(cache_data),
+                Err(err) => {
+                    tracing::warn!("Failed to load cache file {}: {}", cache_path.display(), err);
+                    // Delete the invalid cache file
+                    if let Err(delete_err) = std::fs::remove_file(&cache_path) {
+                        tracing::warn!("Failed to delete invalid cache file: {}", delete_err);
+                    } else {
+                        tracing::info!("Deleted invalid cache file: {}", cache_path.display());
+                    }
+                    None
+                }
+            }
         } else {
             None
         }

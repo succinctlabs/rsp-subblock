@@ -12,13 +12,9 @@ workspace = true
 
 [dependencies]
 thiserror.workspace = true
-serde_json.workspace = true
 serde.workspace = true
-tokio.workspace = true
 sha2.workspace = true
-itertools = "0.13.0"
-url.workspace = true
-futures.workspace = true
+itertools.workspace = true
 bincode.workspace = true
 rkyv.workspace = true
 cfg-if.workspace = true
@@ -31,14 +27,11 @@ rsp-mpt.workspace = true
 # reth
 reth-consensus.workspace = true
 reth-ethereum-consensus.workspace = true
-reth-optimism-consensus.workspace = true
 reth-execution-types.workspace = true
 reth-primitives.workspace = true
-reth-storage-errors.workspace = true
 reth-trie.workspace = true
 reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
-reth-evm-optimism.workspace = true
 reth-errors.workspace = true
 reth-chainspec.workspace = true
 reth-revm.workspace = true
@@ -52,6 +45,6 @@ alloy-primitives.workspace = true
 alloy-rlp.workspace = true
 
 # sp1
-sp1-zkvm = { git = "https://github.com/succinctlabs/sp1-wip.git", branch = "multilinear_v6", features = ["verify"] }
+sp1-zkvm = { version = "4.1.7", features = ["verify"] }
 
 [dev-dependencies]

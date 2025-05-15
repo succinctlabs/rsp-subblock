@@ -20,10 +20,6 @@ struct HostArgs {
     #[clap(flatten)]
     provider: ProviderArgs,
 
-    /// Whether to generate a proof or just execute the block.
-    #[clap(long)]
-    prove: bool,
-
     /// Where to dump the elf and stdin.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
@@ -32,22 +28,6 @@ struct HostArgs {
     /// created from RPC data if it doesn't already exist.
     #[clap(long)]
     cache_dir: Option<PathBuf>,
-
-    /// The path to the CSV file containing the execution data.
-    #[clap(long, default_value = "report.csv")]
-    report_path: PathBuf,
-
-    /// Optional ETH proofs endpoint.
-    #[clap(long, env, requires("eth_proofs_api_token"))]
-    eth_proofs_endpoint: Option<String>,
-
-    /// Optional ETH proofs API token.
-    #[clap(long, env)]
-    eth_proofs_api_token: Option<String>,
-
-    /// Optional ETH proofs cluster ID.
-    #[clap(long, default_value_t = 1)]
-    eth_proofs_cluster_id: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -82,7 +62,7 @@ async fn main() -> eyre::Result<()> {
     let client_input = match (client_input_from_cache, provider_config.rpc_url) {
         (Some(client_input_from_cache), _) => client_input_from_cache,
         (None, Some(rpc_url)) => {
-            // Cache not found but we have RPC
+            // Cache not found, but RPC is set.
             // Setup the provider.
             let provider = ReqwestProvider::new_http(rpc_url);
 
@@ -119,12 +99,9 @@ async fn main() -> eyre::Result<()> {
         tokio::task::spawn_blocking(|| ProverClient::builder().cpu().build()).await.unwrap();
 
     // Setup the proving key and verification key.
-    let (pk, _vk) = client
-        .setup(match variant {
-            ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
-            _ => panic!("other chain variants not supported for subblocks: {:?}", variant),
-        })
-        .await;
+    let (pk, _vk) = client.setup(match variant {
+        ChainVariant::Ethereum => include_elf!("rsp-client-eth"),
+    });
 
     // Execute the block inside the zkVM.
     let mut stdin = SP1Stdin::new();
@@ -140,7 +117,7 @@ async fn main() -> eyre::Result<()> {
         let dump_dir = dump_dir.join(format!("{}", args.block_number));
         let elf_path = dump_dir.join("basic_elf.bin");
         let stdin_path = dump_dir.join("basic_stdin.bin");
-        std::fs::write(elf_path, pk.elf.as_ref())?;
+        std::fs::write(elf_path, &pk.elf)?;
         std::fs::write(stdin_path, bincode::serialize(&stdin)?)?;
     }
 
@@ -156,11 +133,28 @@ fn try_load_input_from_cache(
         let cache_path = cache_dir.join(format!("input/{}/{}.bin", chain_id, block_number));
 
         if cache_path.exists() {
-            // TODO: prune the cache if invalid instead
-            let mut cache_file = std::fs::File::open(cache_path)?;
-            let client_input: ClientExecutorInput = bincode::deserialize_from(&mut cache_file)?;
-
-            Some(client_input)
+            // Try to deserialize the cache file, but handle errors gracefully
+            match std::fs::File::open(&cache_path) {
+                Ok(mut cache_file) => match bincode::deserialize_from(&mut cache_file) {
+                    Ok(client_input) => Some(client_input),
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to deserialize cache file at {}: {}",
+                            cache_path.display(),
+                            err
+                        );
+                        None
+                    }
+                },
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to open cache file at {}: {}",
+                        cache_path.display(),
+                        err
+                    );
+                    None
+                }
+            }
         } else {
             None
         }

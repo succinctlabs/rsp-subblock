@@ -213,7 +213,6 @@ pub enum FromProofError {
     MismatchedStorageRoot(Address, B256, B256),
     #[error("Found mismatched state root after reconstruction \n found {}, expected {}", .0, .1)]
     MismatchedStateRoot(B256, B256),
-    // todo: Should decode return a decoder error?
     #[error("Error decoding proofs from bytes, {}", .0)]
     DecodingError(#[from] Error),
 }
