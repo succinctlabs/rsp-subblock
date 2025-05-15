@@ -118,6 +118,7 @@ pub struct SubblockOutput {
 impl SubblockOutput {
     /// This is intended to ONLY be called by consecutive subblocks of the same block.
     /// `self` is the current cumulative subblock output, and `other` is the new subblock output.
+    #[inline]
     pub fn extend(&mut self, other: Self) {
         // Make sure that the current output state root lines up with the next input state root.
         assert_eq!(self.output_state_root, other.input_state_root);

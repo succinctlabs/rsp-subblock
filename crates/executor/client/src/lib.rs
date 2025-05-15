@@ -192,20 +192,14 @@ impl ClientExecutor {
     where
         V: Variant,
     {
-        // Initialize the database.
-        println!("cycle-tracker-start: initialize db");
-        // First deserialize the parent state, and calculate the parent state root.
-        let input_state_root = input_state.state_root();
+        let input_state_root = profile!("compute input state root", { input_state.state_root() });
 
-        println!("cycle-tracker-start: construct buffered trie db");
-        // Finally, construct the database.
-        let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
-        let trie_db =
-            TrieDB::new(input_state, input.block_hashes.into_iter().collect(), bytecode_by_hash);
-        let wrap_ref = WrapDatabaseRef(trie_db);
-        println!("cycle-tracker-end: construct buffered trie db");
-
-        println!("cycle-tracker-end: initialize db");
+        let wrap_ref = profile!("construct trie db", {
+            // Finally, construct the database.
+            let bytecode_by_hash = input.bytecodes.iter().map(|b| (b.hash_slow(), b)).collect();
+            let trie_db = TrieDB::new(input_state, input.block_hashes, bytecode_by_hash);
+            WrapDatabaseRef(trie_db)
+        });
 
         // Execute the block.
         let mut executor_block_input = profile!("recover senders", {
@@ -282,6 +276,7 @@ impl ClientExecutor {
                 println!("cycle-tracker-start: deserialize subblock input");
                 let mut reader = Cursor::new(&public_value);
                 let subblock_input: SubblockInput = bincode::deserialize_from(&mut reader).unwrap();
+                println!("cycle-tracker-end: deserialize subblock input");
 
                 // Every subblock should have at least one block hash: the immediate parent block hash.
                 // So an empty block_hashes indicates that this is the first subblock.
@@ -290,8 +285,6 @@ impl ClientExecutor {
                 } else {
                     assert_eq!(block_hashes, subblock_input.block_hashes);
                 }
-
-                println!("cycle-tracker-end: deserialize subblock input");
 
                 // Check that the starting gas used is the same as the last cumulative gas used.
                 assert_eq!(
@@ -401,7 +394,7 @@ impl ClientExecutor {
 
         // Derive the block header.
         //
-        // Note: the receipts root and gas used are verified by `validate_block_post_execution`.
+        // Note: the receipts root and gas used are verified by `validate_subblock_aggregation`.
         let mut header = aggregation_input.current_block.header.clone();
         header.parent_hash = aggregation_input.parent_header().hash_slow();
         header.ommers_hash = proofs::calculate_ommers_root(&aggregation_input.current_block.ommers);

@@ -1,4 +1,4 @@
-# Reth Succinct Processor (RSP)
+# Reth Succinct Processor (RSP): Subblocks
 
 A minimal implementation of generating zero-knowledge proofs of EVM block execution using [Reth](https://github.com/paradigmxyz/reth). Supports both Ethereum and OP Stack.
 

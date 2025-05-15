@@ -611,9 +611,6 @@ impl<T: Transport + Clone, P: Provider<T, AnyNetwork> + Clone + 'static> HostExe
             bytecodes: rpc_db.get_bytecodes(),
         };
 
-        let parent_state_bytes =
-            rkyv::to_bytes::<rkyv::rancor::Error>(&parent_state).unwrap().to_vec();
-
         let mut big_state = parent_state.clone();
         for i in 0..subblock_inputs.len() {
             let input_root = big_state.state_root();
