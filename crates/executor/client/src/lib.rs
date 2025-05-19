@@ -252,7 +252,8 @@ impl ClientExecutor {
     /// Executes the aggregation of multiple subblocks.
     ///
     /// When executed in the zkvm, this will verify all of the subblock proofs and perform
-    /// consistency checks between them.
+    /// consistency checks between them. The aggregation input is committed as a public value, so
+    /// it is taken as a trusted input.
     #[allow(unused)]
     pub fn execute_aggregation<V: Variant>(
         &self,
@@ -264,7 +265,7 @@ impl ClientExecutor {
         let mut cumulative_state_diff =
             SubblockOutput { output_state_root: parent_state_root, ..Default::default() };
         let mut transaction_body: Vec<TransactionSigned> = Vec::new();
-        let mut block_hashes = BTreeMap::<u64, B256>::new();
+        let mut block_hashes = None;
         profile!("aggregate", {
             for (i, public_value) in public_values.iter().enumerate() {
                 let public_values_digest = Sha256::digest(public_value);
@@ -280,10 +281,10 @@ impl ClientExecutor {
 
                 // Every subblock should have at least one block hash: the immediate parent block hash.
                 // So an empty block_hashes indicates that this is the first subblock.
-                if i == 0 && block_hashes.is_empty() {
-                    block_hashes = subblock_input.block_hashes;
+                if i == 0 && block_hashes.is_none() {
+                    block_hashes = Some(subblock_input.block_hashes);
                 } else {
-                    assert_eq!(block_hashes, subblock_input.block_hashes);
+                    assert_eq!(block_hashes, Some(subblock_input.block_hashes));
                 }
 
                 // Check that the starting gas used is the same as the last cumulative gas used.
@@ -359,7 +360,7 @@ impl ClientExecutor {
                 reconstructed_block_hashes.insert(parent_header.number, parent_header_hash);
             }
 
-            assert_eq!(reconstructed_block_hashes, block_hashes);
+            assert_eq!(reconstructed_block_hashes, block_hashes.unwrap());
         });
 
         // Check that the subblock transactions match the main block transactions.

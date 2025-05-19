@@ -18,7 +18,7 @@ use tracing_subscriber::{
 mod cli;
 use cli::ProviderArgs;
 
-/// The arguments for the host executable.
+/// The arguments for the subblock executable.
 #[derive(Debug, Clone, Parser)]
 struct HostArgs {
     /// The block number of the block to execute.
@@ -26,10 +26,12 @@ struct HostArgs {
     block_number: u64,
     #[clap(flatten)]
     provider: ProviderArgs,
-    /// Whether to pre-execute the block.
+    /// Whether to execute the subblock and aggregation programs in the SP1 zkVM.
+    ///
+    /// Note: does not generate a proof.
     #[clap(long)]
     execute: bool,
-    /// Where to dump the elf and stdin for the files.
+    /// Where to dump the elf and stdin for the subblock and aggregation programs.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
     /// Optional path to the directory containing cached client input. A new cache file will be
