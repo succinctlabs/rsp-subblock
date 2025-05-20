@@ -17,13 +17,13 @@ pub fn main() {
     sp1_zkvm::io::commit(&input);
     println!("cycle-tracker-end: commit input");
 
-    println!("cycle-tracker-start: deserialize rkyv stuff");
+    println!("cycle-tracker-start: deserialize parent state");
 
     let aligned = read_aligned_vec::<16>();
     let mut parent_state =
         rkyv::from_bytes::<EthereumState, rkyv::rancor::BoxedError>(&aligned).unwrap();
 
-    println!("cycle-tracker-end: deserialize rkyv stuff");
+    println!("cycle-tracker-end: deserialize parent state");
 
     println!("cycle-tracker-start: execute subblock");
     // Execute the block.

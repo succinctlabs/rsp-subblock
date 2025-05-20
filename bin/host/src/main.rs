@@ -20,7 +20,7 @@ struct HostArgs {
     #[clap(flatten)]
     provider: ProviderArgs,
 
-    /// Where to dump the elf and stdin.
+    /// Where to dump the elf and stdin for the monolithic SP1 program.
     #[clap(long)]
     dump_dir: Option<PathBuf>,
 
