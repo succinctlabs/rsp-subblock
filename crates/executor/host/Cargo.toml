@@ -11,16 +11,8 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-thiserror.workspace = true
-serde_json.workspace = true
-url.workspace = true
-serde.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-
 # workspace
 rsp-rpc-db.workspace = true
-rsp-witness-db.workspace = true
 rsp-client-executor.workspace = true
 rsp-mpt = { workspace = true, features = ["preimage_context"] }
 rsp-primitives.workspace = true
@@ -39,13 +31,19 @@ revm.workspace = true
 revm-primitives.workspace = true
 
 # alloy
-alloy-primitives.workspace = true
-alloy-rlp.workspace = true
 alloy-provider.workspace = true
 alloy-transport.workspace = true
-itertools = "0.13.0"
-futures.workspace = true
 alloy-rpc-types.workspace = true
+
+# rkyv
+rkyv.workspace = true
+
+# misc
+itertools.workspace = true
+lazy_static.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 alloy-primitives.workspace = true

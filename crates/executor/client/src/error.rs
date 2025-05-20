@@ -9,6 +9,8 @@ pub enum ClientError {
     SignatureRecoveryFailed,
     #[error("Mismatched state root after executing the block")]
     MismatchedStateRoot,
+    #[error("Mismatched storage root after executing the block")]
+    MismatchedStorageRoot,
     #[error("Missing bytecode for account {}", .0)]
     MissingBytecode(Address),
     #[error("Missing trie for address {}", .0)]
@@ -23,4 +25,10 @@ pub enum ClientError {
     BlockExecutionError(#[from] BlockExecutionError),
     #[error("Mpt Error: {}", .0)]
     MptError(#[from] MptError),
+    #[error("Deserialization Error")]
+    DeserializationError,
+    #[error("Invalid subblock output")]
+    InvalidSubblockOutput,
+    #[error("Invalid state diff")]
+    InvalidStateDiff,
 }

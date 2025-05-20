@@ -1,0 +1,50 @@
+{
+    "editor.inlineSuggest.enabled": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true,
+    },
+    "[typescript][typescriptreact]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": "explicit"
+        }
+    },
+    "editor.rulers": [
+        100
+    ],
+    "rust-analyzer.check.overrideCommand": [
+        "cargo",
+        "clippy",
+        // "--workspace",
+        "--message-format=json",
+        "--all-features",
+        "--all-targets",
+        "--",
+        "-A",
+        "incomplete-features"
+    ],
+    "rust-analyzer.linkedProjects": [
+        "${workspaceFolder}/Cargo.toml",
+        "${workspaceFolder}/bin/client-eth-subblock/Cargo.toml",
+        "${workspaceFolder}/bin/client-eth-agg/Cargo.toml",
+        "${workspaceFolder}/bin/client-eth/Cargo.toml",
+    ],
+    "go.formatTool": "gofmt",
+    "go.lintTool": "golangci-lint",
+    "go.lintFlags": [
+        "--fast"
+    ],
+    "[go]": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "go.vetFlags": [
+        "-all"
+    ],
+    "go.useLanguageServer": true,
+    "go.lintOnSave": "package",
+}

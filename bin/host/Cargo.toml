@@ -4,35 +4,39 @@ name = "rsp"
 edition = "2021"
 
 [dependencies]
+dotenv.workspace = true
 tokio.workspace = true
 url.workspace = true
-tracing-subscriber = "0.3.18"
-dotenv = "0.15.0"
-clap = { version = "4.5.7", features = ["derive", "env"] }
+tracing-subscriber.workspace = true 
+tracing.workspace = true
+clap.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-bincode = "1.3.3"
-csv = "1.1"
+bincode.workspace = true
+eyre.workspace = true
+rkyv.workspace = true
+sha2.workspace = true
+
 # workspace
 rsp-host-executor.workspace = true
 rsp-client-executor.workspace = true
+rsp-mpt.workspace = true
 
 # alloy
 alloy-provider.workspace = true
 
-# reth 
-reth-primitives.workspace = true
-
 # sp1
-sp1-sdk = "4.0.0"
-eyre = "0.6.12"
-reqwest = "0.12.9"
-base64 = "0.22.1"
-hex = "0.4.3"
+sp1-sdk = { version = "4.1.7" }
 
 [build-dependencies]
-sp1-helper = "4.0.0"
+sp1-build = { version = "4.1.7" }
+
+
+[[bin]]
+name = "subblock"
+path = "src/subblock.rs"
 
 [features]
 default = []
+s3 = []
 cuda = ["sp1-sdk/cuda"]

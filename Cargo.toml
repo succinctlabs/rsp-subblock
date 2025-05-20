@@ -1,3 +1,5 @@
+# TODO: use public sp1 version! (and new patches?)
+
 [workspace]
 members = [
     "bin/host",
@@ -6,10 +8,15 @@ members = [
     "crates/mpt",
     "crates/primitives",
     "crates/storage/rpc-db",
-    "crates/storage/witness-db",
 ]
 exclude = []
 resolver = "2"
+
+[profile.release-with-debug]
+inherits = "release"
+debug-assertions = true
+debug = true
+
 
 [workspace.package]
 edition = "2021"
@@ -32,54 +39,105 @@ tokio = { version = "1.21", default-features = false, features = [
 serde_json = "1.0.94"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 futures = "0.3"
+sha2 = "0.10.8"
 url = "2.3"
 thiserror = "1.0.61"
 hex-literal = "0.4.1"
 rayon = "1.10.0"
 rlp = "0.5.2"
+bincode = "1.3.3"
+ruint = { git = "https://github.com/yuwen01/uint", branch = "yuwen/rkyv" }
+rkyv = "0.8.10"
+eyre = "0.6.12"
+reqwest = "0.12.9"
+base64 = "0.22.1"
+hex = "0.4.3"
+chrono = "0.4.39"
+tracing-subscriber = "0.3.18"
+dotenv = "0.15.0"
+clap = { version = "4.5.7", features = ["derive", "env"] }
+csv = "1.1"
+lazy_static = "1.5.0"
+itertools = "0.13.0"
+
 
 # workspace
 rsp-rpc-db = { path = "./crates/storage/rpc-db" }
-rsp-witness-db = { path = "./crates/storage/witness-db" }
 rsp-client-executor = { path = "./crates/executor/client" }
 rsp-host-executor = { path = "./crates/executor/host" }
 rsp-mpt = { path = "./crates/mpt" }
 rsp-primitives = { path = "./crates/primitives" }
 
 # reth
-reth-primitives = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+# reth-primitives = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "alloy-compat",
+#     "optimism",
+#     "std",
+# ] }
+# reth-codecs = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-evm = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-revm = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "std",
+# ] }
+# reth-node-ethereum = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-evm-ethereum = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "std",
+# ] }
+# reth-evm-optimism = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "optimism",
+# ] }
+# reth-storage-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "std",
+# ] }
+# reth-trie = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-trie-common = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-chainspec = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-optimism-chainspec = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-execution-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-execution-types = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-db = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-ethereum-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
+# reth-optimism-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+#     "optimism",
+# ] }
+
+reth-primitives = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "alloy-compat",
     "optimism",
     "std",
 ] }
-reth-codecs = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-evm = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-revm = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+reth-codecs = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-consensus = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-evm = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-revm = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "std",
 ] }
-reth-node-ethereum = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-evm-ethereum = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+reth-node-ethereum = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-evm-ethereum = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "std",
 ] }
-reth-evm-optimism = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+reth-evm-optimism = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "optimism",
 ] }
-reth-storage-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+reth-storage-errors = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "std",
 ] }
-reth-trie = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-trie-common = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-chainspec = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-optimism-chainspec = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-execution-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-execution-types = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-db = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-errors = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-ethereum-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false }
-reth-optimism-consensus = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+reth-trie = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = ["serde"] }
+reth-trie-common = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-chainspec = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock",default-features = false }
+reth-optimism-chainspec = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-optimism-forks = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-execution-errors = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-execution-types = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-db = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false }
+reth-errors = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock",default-features = false }
+reth-ethereum-consensus = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock",default-features = false }
+reth-optimism-consensus = { git = "https://github.com/succinctlabs/reth-subblock", branch = "subblock", default-features = false, features = [
     "optimism",
 ] }
+
 
 # revm
 revm = { version = "14.0.0", features = [
@@ -96,8 +154,22 @@ revm-inspectors = "0.6"
 revm-interpreter = { version = "=10.0.1", default-features = false }
 revm-precompile = { version = "=11.0.1", default-features = false }
 
+# revm = { path = "../revm/crates/revm", features = [
+#     "optimism",
+#     "std",
+#     "serde",
+#     "kzg-rs",
+# ], default-features = false }
+# revm-primitives = { path = "../revm/crates/primitives", features = [
+#     "std",
+#     "serde",
+# ], default-features = false }
+# revm-interpreter = { path = "../revm/crates/interpreter", default-features = false }
+# revm-precompile = { path = "../revm/crates/precompile", default-features = false }
+
 # alloy
-alloy-primitives = { version = "0.8.4", features = ["sha3-keccak"] }
+# alloy-primitives = { version = "0.8.4", features = ["sha3-keccak"] }
+alloy-primitives = { version = "0.8.20", features = ["sha3-keccak"] }
 alloy-provider = { version = "0.3", default-features = false, features = [
     "reqwest",
     "reqwest-rustls-tls",

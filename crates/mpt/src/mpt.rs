@@ -30,6 +30,8 @@ use core::{
 };
 use reth_trie::AccountProof;
 use revm::primitives::HashMap;
+use rsp_primitives::rkyv::B256Def;
+use std::collections::HashSet;
 
 use rlp::{Decodable, DecoderError, Prototype, Rlp};
 use serde::{Deserialize, Serialize};
@@ -80,8 +82,6 @@ pub const KECCAK_EMPTY: B256 =
 /// - Consider switching the return type to `B256` for consistency with other parts of the codebase.
 #[inline]
 pub fn keccak(data: impl AsRef<[u8]>) -> [u8; 32] {
-    // TODO: Remove this benchmarking code once performance testing is complete.
-    // std::hint::black_box(sha2::Sha256::digest(&data));
     *alloy_primitives::utils::keccak256(data)
 }
 
@@ -92,16 +92,43 @@ pub fn keccak(data: impl AsRef<[u8]>) -> [u8; 32] {
 /// optimizing storage. However, operations targeting a truncated part will fail and
 /// return an error. Another distinction of this implementation is that branches cannot
 /// store values, aligning with the construction of MPTs in Ethereum.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[rkyv(bytecheck(
+    bounds(
+        __C: rkyv::validation::ArchiveContext,
+        __C::Error: rkyv::rancor::Source,
+    )
+))]
+#[rkyv(serialize_bounds(
+    __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+    __S::Error: rkyv::rancor::Source,
+))]
+#[rkyv(deserialize_bounds(
+    __D::Error: rkyv::rancor::Source
+))]
 pub struct MptNode {
     /// The type and data of the node.
-    data: MptNodeData,
+    #[rkyv(omit_bounds)]
+    pub data: MptNodeData,
     /// Cache for a previously computed reference of this node. This is skipped during
     /// serialization.
     #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
     cached_reference: RefCell<Option<MptNodeReference>>,
 }
-
 /// Represents custom error types for the sparse Merkle Patricia Trie (MPT).
 ///
 /// These errors cover various scenarios that can occur during trie operations, such as
@@ -126,27 +153,61 @@ pub enum Error {
     LegacyRlp(#[from] DecoderError),
 }
 
+impl From<B256> for MptNode {
+    fn from(digest: B256) -> Self {
+        match digest {
+            EMPTY_ROOT | B256::ZERO => MptNode::default(),
+            _ => MptNodeData::Digest(digest).into(),
+        }
+    }
+}
+
 /// Represents the various types of data that can be stored within a node in the sparse
 /// Merkle Patricia Trie (MPT).
 ///
 /// Each node in the trie can be of one of several types, each with its own specific data
 /// structure. This enum provides a clear and type-safe way to represent the data
 /// associated with each node type.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[rkyv(bytecheck(
+    bounds(
+        __C: rkyv::validation::ArchiveContext,
+    )
+))]
+#[rkyv(serialize_bounds(
+    __S: rkyv::ser::Writer + rkyv::ser::Allocator,
+    __S::Error: rkyv::rancor::Source,
+))]
+#[rkyv(deserialize_bounds(
+    __D::Error: rkyv::rancor::Source
+))]
 pub enum MptNodeData {
     /// Represents an empty trie node.
     #[default]
     Null,
     /// A node that can have up to 16 children. Each child is an optional boxed [MptNode].
-    Branch([Option<Box<MptNode>>; 16]),
+    Branch(#[rkyv(omit_bounds)] [Option<Box<MptNode>>; 16]),
     /// A leaf node that contains a key and a value, both represented as byte vectors.
     Leaf(Vec<u8>, Vec<u8>),
     /// A node that has exactly one child and is used to represent a shared prefix of
     /// several keys.
-    Extension(Vec<u8>, Box<MptNode>),
+    Extension(Vec<u8>, #[rkyv(omit_bounds)] Box<MptNode>),
     /// Represents a sub-trie by its hash, allowing for efficient storage of large
     /// sub-tries without storing their entire content.
-    Digest(B256),
+    Digest(#[rkyv(with = B256Def)] B256),
 }
 
 /// Represents the ways in which one node can reference another node inside the sparse
@@ -163,6 +224,20 @@ pub enum MptNodeReference {
     /// Represents an indirect reference to another node using the Keccak hash of its long
     /// encoding. Used for encodings that are not less than 32 bytes in length.
     Digest(B256),
+}
+
+impl MptNodeReference {
+    pub fn as_digest(&self) -> Self {
+        match self {
+            MptNodeReference::Digest(d) => MptNodeReference::Digest(*d),
+            MptNodeReference::Bytes(b) => MptNodeReference::Digest(keccak(b).into()),
+        }
+    }
+
+    pub fn digest(&self) -> B256 {
+        let MptNodeReference::Digest(d) = self.as_digest() else { unreachable!() };
+        d
+    }
 }
 
 /// Provides a conversion from [MptNodeData] to [MptNode].
@@ -460,6 +535,55 @@ impl MptNode {
         }
     }
 
+    #[inline]
+    pub fn get_with_touched(
+        &self,
+        key: &[u8],
+    ) -> Result<(Option<&[u8]>, Vec<MptNodeReference>), Error> {
+        self.get_internal_with_touched(&to_nibs(key))
+    }
+
+    fn get_internal_with_touched(
+        &self,
+        key_nibs: &[u8],
+    ) -> Result<(Option<&[u8]>, Vec<MptNodeReference>), Error> {
+        let my_reference = self.reference();
+        match &self.data {
+            MptNodeData::Null => Ok((None, vec![my_reference])),
+            MptNodeData::Branch(nodes) => {
+                if let Some((i, tail)) = key_nibs.split_first() {
+                    match nodes[*i as usize] {
+                        Some(ref node) => {
+                            let (val, mut result) = node.get_internal_with_touched(tail)?;
+                            result.push(my_reference);
+                            Ok((val, result))
+                        }
+                        None => Ok((None, vec![my_reference])),
+                    }
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Leaf(prefix, value) => {
+                if prefix_nibs(prefix) == key_nibs {
+                    Ok((Some(value), vec![my_reference]))
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Extension(prefix, node) => {
+                if let Some(tail) = key_nibs.strip_prefix(prefix_nibs(prefix).as_slice()) {
+                    let (val, mut result) = node.get_internal_with_touched(tail)?;
+                    result.push(my_reference);
+                    Ok((val, result))
+                } else {
+                    Ok((None, vec![my_reference]))
+                }
+            }
+            MptNodeData::Digest(digest) => Err(Error::NodeNotResolved(*digest)),
+        }
+    }
+
     /// Removes a key from the trie.
     ///
     /// This method attempts to remove a key-value pair from the trie. If the key is
@@ -517,7 +641,13 @@ impl MptNode {
                             );
                         }
                         // if the orphan is a branch or digest, convert to an extension
-                        MptNodeData::Branch(_) | MptNodeData::Digest(_) => {
+                        MptNodeData::Branch(_) => {
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&[index as u8], false),
+                                orphan,
+                            );
+                        }
+                        MptNodeData::Digest(_) => {
                             self.data = MptNodeData::Extension(
                                 to_encoded_path(&[index as u8], false),
                                 orphan,
@@ -573,6 +703,156 @@ impl MptNode {
 
         self.invalidate_ref_cache();
         Ok(true)
+    }
+
+    pub fn delete_with_touched(
+        &mut self,
+        key: &[u8],
+    ) -> Result<(bool, Vec<MptNodeReference>), Error> {
+        self.delete_internal_with_touched(&to_nibs(key))
+    }
+
+    fn delete_internal_with_touched(
+        &mut self,
+        key_nibs: &[u8],
+    ) -> Result<(bool, Vec<MptNodeReference>), Error> {
+        let mut total_touched = vec![self.reference()];
+        match &mut self.data {
+            MptNodeData::Null => return Ok((false, vec![])),
+            MptNodeData::Branch(children) => {
+                if let Some((i, tail)) = key_nibs.split_first() {
+                    let child = &mut children[*i as usize];
+                    match child {
+                        Some(node) => {
+                            let (result, touched) = node.delete_internal_with_touched(tail)?;
+                            total_touched.extend(touched);
+                            if !result {
+                                return Ok((false, total_touched));
+                            }
+                            // if the node is now empty, remove it
+                            if node.is_empty() {
+                                *child = None;
+                            }
+                        }
+                        None => return Ok((false, total_touched)),
+                    }
+                } else {
+                    return Err(Error::ValueInBranch);
+                }
+
+                let mut remaining = children.iter_mut().enumerate().filter(|(_, n)| n.is_some());
+                // there will always be at least one remaining node
+                let (index, node) = remaining.next().unwrap();
+                // if there is only exactly one node left, we need to convert the branch
+                if remaining.next().is_none() {
+                    let mut orphan = node.take().unwrap();
+                    total_touched.push(orphan.reference());
+                    match &mut orphan.data {
+                        // if the orphan is a leaf, prepend the corresponding nib to it
+                        MptNodeData::Leaf(prefix, orphan_value) => {
+                            let new_nibs: Vec<_> =
+                                iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
+                            self.data = MptNodeData::Leaf(
+                                to_encoded_path(&new_nibs, true),
+                                mem::take(orphan_value),
+                            );
+                        }
+                        // if the orphan is an extension, prepend the corresponding nib to it
+                        MptNodeData::Extension(prefix, orphan_child) => {
+                            let new_nibs: Vec<_> =
+                                iter::once(index as u8).chain(prefix_nibs(prefix)).collect();
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&new_nibs, false),
+                                mem::take(orphan_child),
+                            );
+                        }
+                        // if the orphan is a branch or digest, convert to an extension
+                        MptNodeData::Branch(_) | MptNodeData::Digest(_) => {
+                            self.data = MptNodeData::Extension(
+                                to_encoded_path(&[index as u8], false),
+                                orphan,
+                            );
+                        }
+                        MptNodeData::Null => unreachable!(),
+                    }
+                }
+            }
+            MptNodeData::Leaf(prefix, _) => {
+                if prefix_nibs(prefix) != key_nibs {
+                    return Ok((false, total_touched));
+                }
+                self.data = MptNodeData::Null;
+            }
+            MptNodeData::Extension(prefix, child) => {
+                let mut self_nibs = prefix_nibs(prefix);
+                if let Some(tail) = key_nibs.strip_prefix(self_nibs.as_slice()) {
+                    let (result, touched) = child.delete_internal_with_touched(tail)?;
+                    total_touched.extend(touched);
+                    if !result {
+                        return Ok((false, total_touched));
+                    }
+                } else {
+                    return Ok((false, total_touched));
+                }
+
+                // an extension can only point to a branch or a digest; since it's sub trie was
+                // modified, we need to make sure that this property still holds
+                match &mut child.data {
+                    // if the child is empty, remove the extension
+                    MptNodeData::Null => {
+                        self.data = MptNodeData::Null;
+                    }
+                    // for a leaf, replace the extension with the extended leaf
+                    MptNodeData::Leaf(prefix, value) => {
+                        self_nibs.extend(prefix_nibs(prefix));
+                        self.data =
+                            MptNodeData::Leaf(to_encoded_path(&self_nibs, true), mem::take(value));
+                    }
+                    // for an extension, replace the extension with the extended extension
+                    MptNodeData::Extension(prefix, node) => {
+                        self_nibs.extend(prefix_nibs(prefix));
+                        self.data = MptNodeData::Extension(
+                            to_encoded_path(&self_nibs, false),
+                            mem::take(node),
+                        );
+                    }
+                    // for a branch or digest, the extension is still correct
+                    MptNodeData::Branch(_) | MptNodeData::Digest(_) => {}
+                }
+            }
+            MptNodeData::Digest(digest) => return Err(Error::NodeNotResolved(*digest)),
+        };
+
+        self.invalidate_ref_cache();
+        Ok((true, total_touched))
+    }
+
+    pub fn prune_unmarked_nodes(&mut self, touched_refs: &HashSet<MptNodeReference>) {
+        if self.is_empty() {
+            return;
+        }
+
+        if !touched_refs.contains(&self.reference())
+            && !matches!(self.data, MptNodeData::Leaf(_, _))
+        {
+            self.data = MptNodeData::Digest(self.hash());
+            return;
+        }
+
+        match &mut self.data {
+            MptNodeData::Branch(children) => {
+                for child in children.iter_mut().flatten() {
+                    child.prune_unmarked_nodes(touched_refs);
+                }
+            }
+            MptNodeData::Extension(_, child) => {
+                child.prune_unmarked_nodes(touched_refs);
+            }
+            // No recursive pruning necessary for leaves, digests, or nulls
+            MptNodeData::Leaf(_, _) | MptNodeData::Digest(_) | MptNodeData::Null => {}
+        }
+
+        self.invalidate_ref_cache();
     }
 
     /// Inserts a key-value pair into the trie.
@@ -1152,6 +1432,7 @@ fn node_from_digest(digest: B256) -> MptNode {
 #[cfg(test)]
 mod tests {
     use hex_literal::hex;
+    use rand::Rng;
 
     use super::*;
 
@@ -1363,6 +1644,67 @@ mod tests {
             assert_eq!(trie.hash(), reference.hash());
         }
         assert!(trie.is_empty());
+    }
+
+    #[test]
+    pub fn test_keccak_trie_prune() {
+        const N: usize = 1000;
+
+        // insert
+        let mut trie = MptNode::default();
+        for i in 0..N {
+            assert!(trie.insert_rlp(&keccak(i.to_be_bytes()), i).unwrap());
+        }
+
+        let expected = trie.hash();
+
+        let touched_idx =
+            (0..100).map(|_| rand::thread_rng().gen_range(0..N)).collect::<Vec<usize>>();
+        // let touched_idx = vec![10usize, 20, 30];
+
+        // get
+        for i in 0..N {
+            assert_eq!(trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(i));
+            assert!(trie.get(&keccak((i + N).to_be_bytes())).unwrap().is_none());
+        }
+
+        let touched_refs = touched_idx
+            .iter()
+            .flat_map(|&key| trie.get_with_touched(&keccak(key.to_be_bytes())).unwrap().1)
+            .collect();
+
+        let serialized_size = rkyv::to_bytes::<rkyv::rancor::Error>(&trie).unwrap().len();
+
+        let mut pruned_trie = trie.clone();
+        pruned_trie.prune_unmarked_nodes(&touched_refs);
+
+        let serialized_size_after =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&pruned_trie).unwrap().len();
+
+        assert!(serialized_size_after < serialized_size);
+
+        for i in touched_idx.iter() {
+            assert_eq!(pruned_trie.get_rlp(&keccak(i.to_be_bytes())).unwrap(), Some(*i));
+        }
+
+        assert_eq!(pruned_trie.hash(), expected);
+
+        pruned_trie
+            .insert(&keccak(touched_idx[0].to_be_bytes()), 1000i32.to_be_bytes().to_vec())
+            .unwrap();
+        trie.insert(&keccak(touched_idx[0].to_be_bytes()), 1000i32.to_be_bytes().to_vec()).unwrap();
+        assert_eq!(pruned_trie.hash(), trie.hash());
+
+        pruned_trie.delete(&keccak(touched_idx[1].to_be_bytes())).unwrap();
+        trie.delete(&keccak(touched_idx[1].to_be_bytes())).unwrap();
+        assert_eq!(pruned_trie.hash(), trie.hash());
+
+        for i in touched_idx.iter().rev() {
+            let res1 = pruned_trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            let res2 = trie.delete(&keccak(i.to_be_bytes())).unwrap();
+            assert_eq!(res1, res2);
+            assert_eq!(pruned_trie.hash(), trie.hash());
+        }
     }
 
     #[test]

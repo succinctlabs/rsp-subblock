@@ -66,10 +66,10 @@ jobs:
       - name: "Checkout sources"
         uses: "actions/checkout@v4"
 
-      - name: "Setup nightly toolchain"
+      - name: "Setup stable toolchain"
         uses: "actions-rs/toolchain@v1"
         with:
-          toolchain: "nightly"
+          toolchain: "1.85.0"
           profile: "minimal"
           components: "rustfmt"
           override: true
